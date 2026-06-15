@@ -5,9 +5,9 @@ Guidance for AI assistants (Claude Code and others) working in this repository.
 ## Project status: early development
 
 **NewCreative** is a Microsoft 365 **tenant-to-tenant (T2T) migration** tool,
-distributed as the Python package `m365-migrate`. The Users / Identities
-workload is implemented end-to-end; other workloads are on the roadmap (see
-`docs/architecture.md`).
+distributed as the Python package `m365-migrate`. The Users / Identities and
+Groups workloads are implemented end-to-end; other workloads are on the roadmap
+(see `docs/architecture.md`).
 
 ### Stack & layout
 
@@ -22,9 +22,10 @@ src/m365_migrate/
   config.py          # YAML config + ${ENV:...} secret resolution
   auth.py            # per-tenant client-credentials token providers
   graph_client.py    # Graph REST wrapper: paging + 429/5xx retry
-  models.py          # SourceUser / PlannedUser models
+  models.py          # SourceUser/PlannedUser + SourceGroup/PlannedGroup models
   mapping.py         # UPN rewriting + mapping CSV I/O
-  workloads/users.py # Users workload: discover / plan / migrate
+  workloads/users.py # Users workload: discover / plan / migrate / enrich
+  workloads/groups.py # Groups workload: discover / plan / sync (membership)
   cli.py             # Typer CLI entry point (`m365-migrate`)
 ```
 

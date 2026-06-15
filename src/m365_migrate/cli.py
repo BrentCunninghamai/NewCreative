@@ -7,6 +7,8 @@ Examples
     m365-migrate users plan
     m365-migrate users migrate            # dry run (no writes)
     m365-migrate users migrate --execute  # actually create users
+    m365-migrate groups plan              # plan group + membership reconciliation
+    m365-migrate groups sync --execute    # create groups and add members
 """
 
 from __future__ import annotations
@@ -22,11 +24,14 @@ from m365_migrate.auth import build_token_provider
 from m365_migrate.config import Config, ConfigError, load_config
 from m365_migrate.graph_client import GraphClient
 from m365_migrate.mapping import write_mapping
+from m365_migrate.workloads import groups as groups_workload
 from m365_migrate.workloads import users as users_workload
 
 app = typer.Typer(help="Microsoft 365 tenant-to-tenant migration tool.", no_args_is_help=True)
 users_app = typer.Typer(help="Users / identities workload.", no_args_is_help=True)
 app.add_typer(users_app, name="users")
+groups_app = typer.Typer(help="Groups + membership workload.", no_args_is_help=True)
+app.add_typer(groups_app, name="groups")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -146,6 +151,85 @@ def users_enrich(
         console.print(f"  {label}: {count}")
     if not execute:
         console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+@groups_app.command("discover")
+def groups_discover(config_path: str = CONFIG_OPTION) -> None:
+    """Read groups (with members) from the source tenant to the output dir."""
+    config = _load(config_path)
+    with _client(config, "source") as client:
+        found = groups_workload.discover_groups(client)
+    out = Path(config.options.output_dir) / "source_groups.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps([g.model_dump() for g in found], indent=2))
+    console.print(f"Discovered [bold]{len(found)}[/bold] groups -> {out}")
+
+
+@groups_app.command("plan")
+def groups_plan(config_path: str = CONFIG_OPTION) -> None:
+    """Produce a group reconciliation plan (read-only)."""
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = groups_workload.discover_groups(source)
+    with _client(config, "target") as target:
+        existing = groups_workload.get_target_group_ids(target)
+    planned = groups_workload.plan_groups(found, config, existing_target_groups=existing)
+    _print_group_plan(planned)
+
+
+@groups_app.command("sync")
+def groups_sync(
+    config_path: str = CONFIG_OPTION,
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually create groups/add members. Without this flag it is a dry run."
+    ),
+) -> None:
+    """Create missing groups and reconcile membership (dry run unless --execute).
+
+    Run this after `users migrate` so member UPNs resolve to existing target
+    accounts.
+    """
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = groups_workload.discover_groups(source)
+    with _client(config, "target") as target:
+        existing = groups_workload.get_target_group_ids(target)
+        planned = groups_workload.plan_groups(found, config, existing_target_groups=existing)
+        results = groups_workload.sync_groups(target, planned, config, dry_run=not execute)
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    console.print(f"[bold]{mode}[/bold] — {len(results)} groups processed")
+    counts: dict[str, int] = {}
+    for r in results:
+        for key in ("status", "group", "members"):
+            value = r.get(key)
+            if value:
+                counts[f"{key}:{value}"] = counts.get(f"{key}:{value}", 0) + 1
+    for label, count in sorted(counts.items()):
+        console.print(f"  {label}: {count}")
+    if not execute:
+        console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+def _print_group_plan(planned: list) -> None:
+    table = Table(title="Group reconciliation plan")
+    table.add_column("mailNickname")
+    table.add_column("Display name")
+    table.add_column("Kind")
+    table.add_column("Action")
+    table.add_column("Members")
+    table.add_column("Reason")
+    for p in planned:
+        color = {"create": "green", "exists": "cyan", "skip": "yellow"}.get(p.action, "white")
+        table.add_row(
+            p.mail_nickname or "",
+            p.display_name or "",
+            p.kind,
+            f"[{color}]{p.action}[/{color}]",
+            str(len(p.target_member_upns)),
+            p.reason or "",
+        )
+    console.print(table)
 
 
 def _print_plan(planned: list) -> None:
