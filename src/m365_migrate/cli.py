@@ -11,6 +11,8 @@ Examples
     m365-migrate groups sync --execute    # create groups and add members
     m365-migrate mailbox plan             # plan mailbox-settings migration
     m365-migrate mailbox migrate --execute  # apply mailbox settings to target
+    m365-migrate files plan --user jane@src.com         # plan a OneDrive copy
+    m365-migrate files migrate --user jane@src.com --execute  # copy the drive
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from m365_migrate.auth import build_token_provider
 from m365_migrate.config import Config, ConfigError, load_config
 from m365_migrate.graph_client import GraphClient
 from m365_migrate.mapping import write_mapping
+from m365_migrate.workloads import files as files_workload
 from m365_migrate.workloads import groups as groups_workload
 from m365_migrate.workloads import mailboxes as mailboxes_workload
 from m365_migrate.workloads import users as users_workload
@@ -37,6 +40,8 @@ groups_app = typer.Typer(help="Groups + membership workload.", no_args_is_help=T
 app.add_typer(groups_app, name="groups")
 mailbox_app = typer.Typer(help="Exchange Online mailbox-settings workload.", no_args_is_help=True)
 app.add_typer(mailbox_app, name="mailbox")
+files_app = typer.Typer(help="OneDrive / SharePoint files workload.", no_args_is_help=True)
+app.add_typer(files_app, name="files")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -268,6 +273,110 @@ def mailbox_migrate(
         console.print(f"  {status}: {count}")
     if not execute:
         console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+USER_OPTION = typer.Option(None, "--user", help="Source user UPN (migrate their OneDrive).")
+SITE_OPTION = typer.Option(None, "--site", help="Source SharePoint site id.")
+TARGET_SITE_OPTION = typer.Option(None, "--target-site", help="Target SharePoint site id (with --site).")
+
+
+def _drive_roots(config: Config, user: str | None, site: str | None, target_site: str | None) -> tuple[str, str]:
+    try:
+        return files_workload.resolve_drive_roots(config, user=user, site=site, target_site=target_site)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2)
+
+
+@files_app.command("discover")
+def files_discover(
+    config_path: str = CONFIG_OPTION,
+    user: str = USER_OPTION,
+    site: str = SITE_OPTION,
+    target_site: str = TARGET_SITE_OPTION,
+) -> None:
+    """Walk a source drive (OneDrive user or SharePoint site) to the output dir."""
+    config = _load(config_path)
+    source_root, _ = _drive_roots(config, user, site, target_site)
+    with _client(config, "source") as client:
+        found = files_workload.discover_drive_items(client, source_root)
+    label = user or site or "drive"
+    out = Path(config.options.output_dir) / f"source_files_{label.replace('@', '_at_')}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps([i.model_dump() for i in found], indent=2))
+    console.print(f"Discovered [bold]{len(found)}[/bold] items -> {out}")
+
+
+@files_app.command("plan")
+def files_plan(
+    config_path: str = CONFIG_OPTION,
+    user: str = USER_OPTION,
+    site: str = SITE_OPTION,
+    target_site: str = TARGET_SITE_OPTION,
+) -> None:
+    """Produce a drive copy plan (read-only)."""
+    config = _load(config_path)
+    source_root, _ = _drive_roots(config, user, site, target_site)
+    with _client(config, "source") as source:
+        found = files_workload.discover_drive_items(source, source_root)
+    planned = files_workload.plan_drive_items(found, config)
+    _print_files_plan(planned)
+
+
+@files_app.command("migrate")
+def files_migrate(
+    config_path: str = CONFIG_OPTION,
+    user: str = USER_OPTION,
+    site: str = SITE_OPTION,
+    target_site: str = TARGET_SITE_OPTION,
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually copy files. Without this flag it is a dry run."
+    ),
+) -> None:
+    """Copy a source drive to the target (dry run unless --execute)."""
+    config = _load(config_path)
+    source_root, target_root = _drive_roots(config, user, site, target_site)
+    with _client(config, "source") as source:
+        found = files_workload.discover_drive_items(source, source_root)
+        planned = files_workload.plan_drive_items(found, config)
+        with _client(config, "target") as target:
+            results = files_workload.migrate_drive_items(
+                source, target, planned, source_root, target_root, config, dry_run=not execute
+            )
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    console.print(f"[bold]{mode}[/bold] — {len(results)} items processed")
+    counts: dict[str, int] = {}
+    for r in results:
+        for key in ("status", "grants"):
+            value = r.get(key)
+            if value:
+                counts[f"{key}:{value}"] = counts.get(f"{key}:{value}", 0) + 1
+    for label, count in sorted(counts.items()):
+        console.print(f"  {label}: {count}")
+    if not execute:
+        console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+def _print_files_plan(planned: list) -> None:
+    table = Table(title="Drive copy plan")
+    table.add_column("Path")
+    table.add_column("Type")
+    table.add_column("Size")
+    table.add_column("Action")
+    table.add_column("Grants")
+    table.add_column("Reason")
+    for p in planned:
+        color = {"copy": "green", "skip": "yellow"}.get(p.action, "white")
+        table.add_row(
+            p.relative_path,
+            "folder" if p.is_folder else "file",
+            str(p.size),
+            f"[{color}]{p.action}[/{color}]",
+            str(len(p.target_grants)),
+            p.reason or "",
+        )
+    console.print(table)
 
 
 def _print_mailbox_plan(planned: list) -> None:
