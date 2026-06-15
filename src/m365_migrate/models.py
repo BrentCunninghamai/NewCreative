@@ -212,3 +212,51 @@ class PlannedGroup(BaseModel):
             body.update(groupTypes=[], mailEnabled=False, securityEnabled=True)
         # Drop keys Graph would reject as null.
         return {k: v for k, v in body.items() if v is not None}
+
+
+# The writable subset of Graph ``mailboxSettings``. ``userPurpose`` and similar
+# read-only fields are intentionally excluded so they are never PATCHed back.
+MAILBOX_SETTABLE_FIELDS = [
+    "automaticRepliesSetting",
+    "timeZone",
+    "language",
+    "workingHours",
+    "dateFormat",
+    "timeFormat",
+    "delegateMeetingMessageDeliveryOptions",
+]
+
+
+class SourceMailbox(BaseModel):
+    """A user's mailbox configuration as read from the source tenant.
+
+    Only the writable ``mailboxSettings`` subset is captured; mailbox *content*
+    (mail, calendar, contacts) is out of scope for the Graph layer and requires a
+    native cross-tenant mailbox move.
+    """
+
+    user_principal_name: str
+    settings: dict[str, Any] = {}
+
+    @classmethod
+    def from_graph(cls, upn: str, data: dict[str, Any]) -> "SourceMailbox":
+        settings = {
+            field: data[field]
+            for field in MAILBOX_SETTABLE_FIELDS
+            if data.get(field) is not None
+        }
+        return cls(user_principal_name=upn, settings=settings)
+
+
+class PlannedMailbox(BaseModel):
+    """A mailbox-settings migration planned for the target tenant.
+
+    ``action`` is one of: ``settings`` (apply settings to the target mailbox) or
+    ``skip`` (no target mailbox, or nothing to migrate).
+    """
+
+    source_upn: str
+    target_upn: str
+    action: str
+    reason: str | None = None
+    settings: dict[str, Any] = {}
