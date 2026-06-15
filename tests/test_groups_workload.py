@@ -1,0 +1,192 @@
+import httpx
+import respx
+
+from m365_migrate.graph_client import GraphClient
+from m365_migrate.models import PlannedGroup, SourceGroup
+from m365_migrate.workloads import groups as gw
+
+BASE = "https://graph.microsoft.com/v1.0"
+
+
+def test_from_graph_classifies_kinds_and_members():
+    unified = SourceGroup.from_graph(
+        {
+            "id": "g1",
+            "displayName": "Marketing",
+            "mailNickname": "marketing",
+            "groupTypes": ["Unified"],
+            "mailEnabled": True,
+            "securityEnabled": False,
+            "members": [
+                {"id": "u1", "userPrincipalName": "jane@contoso.onmicrosoft.com"},
+                {"id": "d1"},  # non-user member (e.g. device) ignored
+            ],
+        }
+    )
+    assert unified.kind == "microsoft365"
+    assert unified.member_upns == ["jane@contoso.onmicrosoft.com"]
+
+    sec = SourceGroup.from_graph(
+        {"id": "g2", "mailNickname": "sec", "securityEnabled": True, "mailEnabled": False}
+    )
+    assert sec.kind == "security"
+
+    dist = SourceGroup.from_graph(
+        {"id": "g3", "mailNickname": "dl", "securityEnabled": False, "mailEnabled": True}
+    )
+    assert dist.kind == "distribution"
+
+
+def test_plan_marks_create_exists_and_skip(config):
+    groups = [
+        SourceGroup(id="g1", mail_nickname="marketing", group_types=["Unified"], mail_enabled=True),
+        SourceGroup(id="g2", mail_nickname="sec", security_enabled=True),
+        SourceGroup(id="g3", mail_nickname="dl", mail_enabled=True),  # distribution
+    ]
+    planned = gw.plan_groups(groups, config, existing_target_groups={"sec": "tsec"})
+    by_id = {p.source_id: p for p in planned}
+    assert by_id["g1"].action == "create"
+    assert by_id["g2"].action == "exists"
+    assert by_id["g3"].action == "skip"
+    assert "not provisionable" in by_id["g3"].reason
+
+
+def test_plan_rewrites_member_upns(config):
+    groups = [
+        SourceGroup(
+            id="g1",
+            mail_nickname="sec",
+            security_enabled=True,
+            member_upns=["jane@contoso.onmicrosoft.com"],
+        )
+    ]
+    planned = gw.plan_groups(groups, config)
+    assert planned[0].target_member_upns == ["jane@fabrikam.onmicrosoft.com"]
+
+
+def test_microsoft365_group_body():
+    p = PlannedGroup(
+        source_id="g1",
+        mail_nickname="marketing",
+        display_name="Marketing",
+        kind="microsoft365",
+        action="create",
+        description="Marketing team",
+    )
+    body = p.to_graph_body()
+    assert body["groupTypes"] == ["Unified"]
+    assert body["mailEnabled"] is True
+    assert body["securityEnabled"] is False
+    assert body["description"] == "Marketing team"
+
+
+def test_security_group_body_drops_null_description():
+    p = PlannedGroup(
+        source_id="g2",
+        mail_nickname="sec",
+        display_name="Sec",
+        kind="security",
+        action="create",
+    )
+    body = p.to_graph_body()
+    assert body["groupTypes"] == []
+    assert body["securityEnabled"] is True
+    assert body["mailEnabled"] is False
+    assert "description" not in body  # null is stripped
+
+
+@respx.mock
+def test_sync_dry_run_reports_without_writing(config, static_token):
+    # Target has the security group and jane; bob is not in the target yet.
+    respx.get(f"{BASE}/groups").mock(
+        return_value=httpx.Response(
+            200, json={"value": [{"id": "tsec", "mailNickname": "sec"}]}
+        )
+    )
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(
+            200,
+            json={"value": [{"id": "tj", "userPrincipalName": "jane@fabrikam.onmicrosoft.com"}]},
+        )
+    )
+    # Membership read for the existing group (jane not yet a member).
+    respx.get(f"{BASE}/groups/tsec/members").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    planned = [
+        PlannedGroup(
+            source_id="g1",
+            mail_nickname="sec",
+            display_name="Sec",
+            kind="security",
+            action="exists",
+            target_member_upns=[
+                "jane@fabrikam.onmicrosoft.com",
+                "bob@fabrikam.onmicrosoft.com",
+            ],
+        )
+    ]
+    client = GraphClient(static_token)
+    results = gw.sync_groups(client, planned, config, dry_run=True)
+
+    assert results[0]["group"] == "exists"
+    assert results[0]["members"] == "would-add:1"  # only jane resolves
+    assert results[0]["members_unresolved"] == 1  # bob missing in target
+
+
+@respx.mock
+def test_sync_execute_creates_group_and_adds_member(config, static_token):
+    respx.get(f"{BASE}/groups").mock(
+        return_value=httpx.Response(200, json={"value": []})  # nothing in target yet
+    )
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(
+            200,
+            json={"value": [{"id": "tj", "userPrincipalName": "jane@fabrikam.onmicrosoft.com"}]},
+        )
+    )
+    create = respx.post(f"{BASE}/groups").mock(
+        return_value=httpx.Response(201, json={"id": "new-grp", "mailNickname": "marketing"})
+    )
+    add_member = respx.post(f"{BASE}/groups/new-grp/members/$ref").mock(
+        return_value=httpx.Response(204)
+    )
+    planned = [
+        PlannedGroup(
+            source_id="g1",
+            mail_nickname="marketing",
+            display_name="Marketing",
+            kind="microsoft365",
+            action="create",
+            target_member_upns=["jane@fabrikam.onmicrosoft.com"],
+        )
+    ]
+    client = GraphClient(static_token)
+    results = gw.sync_groups(client, planned, config, dry_run=False)
+
+    assert create.called
+    assert add_member.called
+    assert results[0]["group"] == "created"
+    assert results[0]["members"] == "added:1"
+    # The member $ref points at the resolved target user's directory object.
+    body = add_member.calls.last.request.content.decode()
+    assert "/directoryObjects/tj" in body
+
+
+@respx.mock
+def test_sync_skips_distribution_group(config, static_token):
+    respx.get(f"{BASE}/groups").mock(return_value=httpx.Response(200, json={"value": []}))
+    respx.get(f"{BASE}/users").mock(return_value=httpx.Response(200, json={"value": []}))
+    planned = [
+        PlannedGroup(
+            source_id="g3",
+            mail_nickname="dl",
+            display_name="DL",
+            kind="distribution",
+            action="skip",
+            reason="distribution group not provisionable via Graph",
+        )
+    ]
+    client = GraphClient(static_token)
+    results = gw.sync_groups(client, planned, config, dry_run=False)
+    assert results[0]["status"].startswith("skipped:")

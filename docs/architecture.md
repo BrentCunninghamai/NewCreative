@@ -28,9 +28,10 @@ A tool to migrate one Microsoft 365 tenant's contents into another
 | `config.py` | Load/validate YAML config; resolve `${ENV:...}` secrets. |
 | `auth.py` | Per-tenant client-credentials token providers (`azure-identity`). |
 | `graph_client.py` | Graph REST wrapper: bearer auth, `@odata.nextLink` paging, retry on 429/5xx with `Retry-After`. |
-| `models.py` | `SourceUser` / `PlannedUser` domain models + Graph (de)serialization. |
+| `models.py` | `SourceUser`/`PlannedUser` + `SourceGroup`/`PlannedGroup` models + Graph (de)serialization. |
 | `mapping.py` | UPN domain rewriting; mapping CSV read/write. |
-| `workloads/users.py` | `discover_users` → `plan_users` → `migrate_users`. |
+| `workloads/users.py` | `discover_users` → `plan_users` → `migrate_users` → `enrich_users`. |
+| `workloads/groups.py` | `discover_groups` → `plan_groups` → `sync_groups`. |
 | `cli.py` | Typer CLI surface. |
 
 ## Authentication
@@ -55,11 +56,29 @@ Conflicts (target UPN already exists) are surfaced, never silently overwritten.
 user and manager exist in the target) and assigns the source user's license
 SKUs that are available in the target tenant.
 
+## Groups workload flow
+
+```
+discover  GET /groups (source, $expand=members) -> SourceGroup[] (classified by kind)
+plan      match target by mailNickname,          -> PlannedGroup[] (create|exists|skip)
+          classify kind, rewrite member UPNs
+sync      POST /groups for "create",             -> results (dry-run by default)
+          POST members/$ref for resolved members
+```
+
+Only **security** and **Microsoft 365** (Unified) groups are provisioned via
+Graph; mail-enabled security groups and distribution lists are marked ``skip``
+(they need Exchange Online, a later workload). Membership is reconciled through
+the same source→target UPN rewrite as users, so a member is added only once its
+target account exists; members with no target account are reported as unresolved.
+
 ## Roadmap
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
 - [x] Users: license assignment + manager links (`enrich`).
-- [ ] Users: group membership.
+- [x] Groups: provision security/M365 groups + reconcile membership (`groups sync`).
+- [ ] Groups: mail-enabled security groups + distribution lists (via Exchange).
+- [ ] Groups: owners, dynamic membership rules, nested groups.
 - [ ] Exchange Online mailboxes (mail, calendar, contacts).
 - [ ] OneDrive / SharePoint (files, libraries, permissions).
 - [ ] Teams (teams, channels, membership, files).
@@ -68,10 +87,12 @@ SKUs that are available in the target tenant.
 
 ## Known limitations (today)
 
-- Only the Users workload exists; it provisions accounts, manager links, and
-  licenses, but not yet group membership.
+- Users and Groups workloads exist; mailbox, files, and Teams do not yet.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
+- Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
+  security groups and distribution lists are skipped, and group owners, dynamic
+  membership rules, and nested (group-in-group) members are not migrated yet.
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.

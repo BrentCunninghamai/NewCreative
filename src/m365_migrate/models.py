@@ -105,3 +105,110 @@ class PlannedUser(BaseModel):
         if default_usage_location:
             body["usageLocation"] = default_usage_location
         return body
+
+
+# The Graph group properties we read from the source tenant.
+GROUP_SELECT_FIELDS = [
+    "id",
+    "displayName",
+    "mailNickname",
+    "description",
+    "groupTypes",
+    "securityEnabled",
+    "mailEnabled",
+    "visibility",
+]
+
+# Expanded alongside each group so we learn its user members in one request.
+GROUP_EXPAND = "members($select=id,userPrincipalName)"
+
+
+class SourceGroup(BaseModel):
+    """A group as read from the source tenant, with its user members."""
+
+    id: str
+    display_name: str | None = None
+    mail_nickname: str | None = None
+    description: str | None = None
+    group_types: list[str] = []
+    security_enabled: bool = False
+    mail_enabled: bool = False
+    visibility: str | None = None
+    # UPNs of user members (non-user directory objects are ignored).
+    member_upns: list[str] = []
+
+    @property
+    def is_unified(self) -> bool:
+        """True for Microsoft 365 ("Unified") groups."""
+        return any(t.lower() == "unified" for t in self.group_types)
+
+    @property
+    def kind(self) -> str:
+        """Classify the group for migration handling.
+
+        Returns one of ``microsoft365``, ``security``, ``mail-enabled-security``,
+        ``distribution``, or ``unknown``. Only ``microsoft365`` and ``security``
+        groups can be provisioned through Graph; the mail-enabled kinds require
+        Exchange Online and are handled by a later workload.
+        """
+        if self.is_unified:
+            return "microsoft365"
+        if self.security_enabled and self.mail_enabled:
+            return "mail-enabled-security"
+        if self.security_enabled:
+            return "security"
+        if self.mail_enabled:
+            return "distribution"
+        return "unknown"
+
+    @classmethod
+    def from_graph(cls, data: dict[str, Any]) -> "SourceGroup":
+        members = data.get("members") or []
+        return cls(
+            id=data["id"],
+            display_name=data.get("displayName"),
+            mail_nickname=data.get("mailNickname"),
+            description=data.get("description"),
+            group_types=data.get("groupTypes") or [],
+            security_enabled=data.get("securityEnabled", False),
+            mail_enabled=data.get("mailEnabled", False),
+            visibility=data.get("visibility"),
+            member_upns=[
+                m["userPrincipalName"]
+                for m in members
+                if m.get("userPrincipalName")
+            ],
+        )
+
+
+class PlannedGroup(BaseModel):
+    """A group reconciliation planned for the target tenant.
+
+    ``action`` is one of: ``create`` (provision a new target group), ``exists``
+    (a matching target group is already present, just sync membership), or
+    ``skip`` (the group kind cannot be provisioned via Graph).
+    """
+
+    source_id: str
+    mail_nickname: str | None
+    display_name: str | None
+    kind: str
+    action: str
+    reason: str | None = None
+    description: str | None = None
+    # Member UPNs already rewritten to the target domain.
+    target_member_upns: list[str] = []
+
+    def to_graph_body(self) -> dict[str, Any]:
+        """Build the Graph ``POST /groups`` request body for this planned group."""
+        body: dict[str, Any] = {
+            "displayName": self.display_name or self.mail_nickname,
+            "mailNickname": self.mail_nickname,
+            "description": self.description,
+        }
+        if self.kind == "microsoft365":
+            body.update(groupTypes=["Unified"], mailEnabled=True, securityEnabled=False)
+        else:  # security
+            body.update(groupTypes=[], mailEnabled=False, securityEnabled=True)
+        # Drop keys Graph would reject as null.
+        return {k: v for k, v in body.items() if v is not None}
