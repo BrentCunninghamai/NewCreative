@@ -332,3 +332,99 @@ class PlannedDriveItem(BaseModel):
     reason: str | None = None
     # Grants with the grantee UPN already rewritten to the target domain.
     target_grants: list[DriveGrant] = []
+
+
+# Group properties read to identify teams. ``resourceProvisioningOptions``
+# contains "Team" exactly when the M365 group is Teams-enabled.
+TEAM_GROUP_SELECT_FIELDS = [
+    "id",
+    "displayName",
+    "mailNickname",
+    "description",
+    "resourceProvisioningOptions",
+]
+
+
+def group_is_team(group_data: dict[str, Any]) -> bool:
+    """True if a Graph group payload represents a Teams-enabled M365 group."""
+    options = group_data.get("resourceProvisioningOptions") or []
+    return any(str(o).lower() == "team" for o in options)
+
+
+class Channel(BaseModel):
+    """A channel within a team."""
+
+    id: str | None = None
+    display_name: str
+    description: str | None = None
+    # standard | private | shared
+    membership_type: str = "standard"
+
+    @property
+    def is_default(self) -> bool:
+        """True for the auto-created primary channel (named "General")."""
+        return self.display_name.strip().lower() == "general"
+
+    @classmethod
+    def from_graph(cls, data: dict[str, Any]) -> "Channel":
+        return cls(
+            id=data.get("id"),
+            display_name=data["displayName"],
+            description=data.get("description"),
+            membership_type=data.get("membershipType") or "standard",
+        )
+
+
+class SourceTeam(BaseModel):
+    """A team (Teams-enabled M365 group) as read from the source tenant.
+
+    Team *membership* is the backing M365 group's membership and is migrated by
+    the groups workload; channel *files* live in the team's SharePoint library and
+    are migrated by the files workload. This model captures the Teams-specific
+    layer: the team identity and its channels.
+    """
+
+    id: str
+    display_name: str | None = None
+    mail_nickname: str | None = None
+    description: str | None = None
+    channels: list[Channel] = []
+
+    @classmethod
+    def from_graph(cls, group_data: dict[str, Any], channels: list[Channel]) -> "SourceTeam":
+        return cls(
+            id=group_data["id"],
+            display_name=group_data.get("displayName"),
+            mail_nickname=group_data.get("mailNickname"),
+            description=group_data.get("description"),
+            channels=channels,
+        )
+
+
+class PlannedChannel(BaseModel):
+    """A channel recreation planned for the target team.
+
+    ``action`` is one of: ``create`` (recreate a standard channel) or ``skip``
+    (the default General channel, or a private/shared channel not yet supported).
+    """
+
+    display_name: str
+    description: str | None = None
+    membership_type: str = "standard"
+    action: str
+    reason: str | None = None
+
+
+class PlannedTeam(BaseModel):
+    """A team provisioning planned for the target tenant.
+
+    ``action`` is one of: ``provision`` (enable Teams on the matching target M365
+    group and recreate its channels) or ``skip`` (no matching target group yet).
+    """
+
+    source_id: str
+    mail_nickname: str | None
+    display_name: str | None
+    action: str
+    reason: str | None = None
+    channels: list[PlannedChannel] = []

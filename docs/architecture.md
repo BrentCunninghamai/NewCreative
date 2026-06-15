@@ -116,6 +116,29 @@ client and writes go to the target client (different tenants).
 > grants are reapplied, and only when the grantee resolves to a target account;
 > sharing links and group/external grants are skipped.
 
+## Teams workload flow
+
+A team is a Teams-enabled Microsoft 365 group, so this workload composes with the
+others instead of duplicating them: team **membership** is the backing M365
+group's membership (migrated by the groups workload), and channel **files** live
+in the team's SharePoint library (migrated by the files workload). This workload
+owns the Teams-specific layer — enabling Teams and recreating channels.
+
+```
+discover  /groups (resourceProvisioningOptions has "Team") + /teams/{id}/channels -> SourceTeam[]
+plan      match team to target group by mailNickname; classify team + channels    -> PlannedTeam[]
+migrate   PUT /groups/{id}/team (enable), POST standard channels                  -> results (dry-run default)
+```
+
+A Teams-enabled group shares its id with its team, so the matched target group id
+doubles as the team id. Run `groups sync` first so the backing group exists.
+
+> **Scope.** Only **standard** channels are recreated; the default *General*
+> channel is created automatically with the team, and **private / shared**
+> channels (which need channel-scoped membership) are surfaced as `skip`. Tabs,
+> apps, and channel-level settings are future work. Re-runs are idempotent —
+> already-enabled teams and existing channels are left in place.
+
 ## Roadmap
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
@@ -130,14 +153,16 @@ client and writes go to the target client (different tenants).
       (`files migrate`).
 - [ ] OneDrive / SharePoint: large-file upload sessions + SharePoint Migration API
       (version history, full metadata); sharing links and group/external grants.
-- [ ] Teams (teams, channels, membership, files).
+- [x] Teams: enable Teams on migrated M365 groups + recreate standard channels
+      (`teams migrate`). Membership rides on the group; channel files on SharePoint.
+- [ ] Teams: private/shared channels, channel membership, tabs, apps, and settings.
 - [ ] Resumable runs + structured run logs / reporting.
 - [ ] Concurrency with per-tenant throttling budgets.
 
 ## Known limitations (today)
 
-- Users, Groups, Mailbox-settings, and Files workloads exist; mailbox content and
-  Teams do not yet.
+- Users, Groups, Mailbox-settings, Files, and Teams workloads exist; mailbox
+  content does not yet.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
 - Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
@@ -149,6 +174,11 @@ client and writes go to the target client (different tenants).
 - Files: copied via Graph simple upload, so files over `SIMPLE_UPLOAD_LIMIT` are
   skipped (no upload sessions yet); version history and most item metadata are not
   preserved, and only direct user grants that resolve in the target are reapplied.
+- Teams: a team's backing M365 group must already exist in the target (run
+  `groups sync` first) so it can be Teams-enabled. Only standard channels are
+  recreated — private/shared channels, channel membership, tabs, apps, and team
+  settings are not migrated yet. Enabling Teams on a group requires the group to
+  have an owner; ownerless groups will fail to teamify until owners are migrated.
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.
