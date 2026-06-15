@@ -28,10 +28,11 @@ A tool to migrate one Microsoft 365 tenant's contents into another
 | `config.py` | Load/validate YAML config; resolve `${ENV:...}` secrets. |
 | `auth.py` | Per-tenant client-credentials token providers (`azure-identity`). |
 | `graph_client.py` | Graph REST wrapper: bearer auth, `@odata.nextLink` paging, retry on 429/5xx with `Retry-After`. |
-| `models.py` | `SourceUser`/`PlannedUser` + `SourceGroup`/`PlannedGroup` models + Graph (de)serialization. |
+| `models.py` | `SourceUser`/`PlannedUser`, `SourceGroup`/`PlannedGroup`, `SourceMailbox`/`PlannedMailbox` models + Graph (de)serialization. |
 | `mapping.py` | UPN domain rewriting; mapping CSV read/write. |
 | `workloads/users.py` | `discover_users` → `plan_users` → `migrate_users` → `enrich_users`. |
 | `workloads/groups.py` | `discover_groups` → `plan_groups` → `sync_groups`. |
+| `workloads/mailboxes.py` | `discover_mailboxes` → `plan_mailboxes` → `migrate_mailboxes` (settings). |
 | `cli.py` | Typer CLI surface. |
 
 ## Authentication
@@ -72,6 +73,24 @@ Graph; mail-enabled security groups and distribution lists are marked ``skip``
 the same source→target UPN rewrite as users, so a member is added only once its
 target account exists; members with no target account are reported as unresolved.
 
+## Mailbox workload flow
+
+```
+discover  GET /users + /users/{id}/mailboxSettings -> SourceMailbox[] (settings only)
+plan      rewrite UPN, diff against target /users   -> PlannedMailbox[] (settings|skip)
+migrate   PATCH /users/{id}/mailboxSettings (target) -> results (dry-run by default)
+```
+
+This workload migrates mailbox **settings** (time zone, language, working hours,
+automatic replies, date/time formats, delegate options) — the writable subset of
+`mailboxSettings`. Read-only fields (e.g. `userPurpose`) are dropped. Users with
+no mailbox (404 from the endpoint) are skipped at discovery.
+
+> **Mailbox content is out of scope for the Graph layer.** Moving mail, calendar,
+> and contact *items* tenant-to-tenant is not a Graph REST operation; it requires
+> a native cross-tenant mailbox move (MRS / migration endpoints) or a third-party
+> tool. That orchestration is tracked separately on the roadmap.
+
 ## Roadmap
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
@@ -79,7 +98,9 @@ target account exists; members with no target account are reported as unresolved
 - [x] Groups: provision security/M365 groups + reconcile membership (`groups sync`).
 - [ ] Groups: mail-enabled security groups + distribution lists (via Exchange).
 - [ ] Groups: owners, dynamic membership rules, nested groups.
-- [ ] Exchange Online mailboxes (mail, calendar, contacts).
+- [x] Exchange Online mailboxes: settings migration (`mailbox migrate`).
+- [ ] Exchange Online mailboxes: content move (mail/calendar/contacts) via native
+      cross-tenant mailbox migration.
 - [ ] OneDrive / SharePoint (files, libraries, permissions).
 - [ ] Teams (teams, channels, membership, files).
 - [ ] Resumable runs + structured run logs / reporting.
@@ -87,12 +108,16 @@ target account exists; members with no target account are reported as unresolved
 
 ## Known limitations (today)
 
-- Users and Groups workloads exist; mailbox, files, and Teams do not yet.
+- Users, Groups, and Mailbox-settings workloads exist; mailbox content, files,
+  and Teams do not yet.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
 - Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
   security groups and distribution lists are skipped, and group owners, dynamic
   membership rules, and nested (group-in-group) members are not migrated yet.
+- Mailbox: only settings are migrated, not mail/calendar/contact content (which
+  needs a native cross-tenant mailbox move). Target mailboxes must already exist
+  to receive settings.
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.

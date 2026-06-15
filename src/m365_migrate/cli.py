@@ -9,6 +9,8 @@ Examples
     m365-migrate users migrate --execute  # actually create users
     m365-migrate groups plan              # plan group + membership reconciliation
     m365-migrate groups sync --execute    # create groups and add members
+    m365-migrate mailbox plan             # plan mailbox-settings migration
+    m365-migrate mailbox migrate --execute  # apply mailbox settings to target
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from m365_migrate.config import Config, ConfigError, load_config
 from m365_migrate.graph_client import GraphClient
 from m365_migrate.mapping import write_mapping
 from m365_migrate.workloads import groups as groups_workload
+from m365_migrate.workloads import mailboxes as mailboxes_workload
 from m365_migrate.workloads import users as users_workload
 
 app = typer.Typer(help="Microsoft 365 tenant-to-tenant migration tool.", no_args_is_help=True)
@@ -32,6 +35,8 @@ users_app = typer.Typer(help="Users / identities workload.", no_args_is_help=Tru
 app.add_typer(users_app, name="users")
 groups_app = typer.Typer(help="Groups + membership workload.", no_args_is_help=True)
 app.add_typer(groups_app, name="groups")
+mailbox_app = typer.Typer(help="Exchange Online mailbox-settings workload.", no_args_is_help=True)
+app.add_typer(mailbox_app, name="mailbox")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -209,6 +214,79 @@ def groups_sync(
         console.print(f"  {label}: {count}")
     if not execute:
         console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+@mailbox_app.command("discover")
+def mailbox_discover(config_path: str = CONFIG_OPTION) -> None:
+    """Read mailbox settings for mailbox-enabled source users to the output dir."""
+    config = _load(config_path)
+    with _client(config, "source") as client:
+        found = mailboxes_workload.discover_mailboxes(client)
+    out = Path(config.options.output_dir) / "source_mailboxes.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps([m.model_dump() for m in found], indent=2))
+    console.print(f"Discovered [bold]{len(found)}[/bold] mailboxes -> {out}")
+
+
+@mailbox_app.command("plan")
+def mailbox_plan(config_path: str = CONFIG_OPTION) -> None:
+    """Produce a mailbox-settings migration plan (read-only)."""
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = mailboxes_workload.discover_mailboxes(source)
+    with _client(config, "target") as target:
+        existing = users_workload.discover_target_upns(target)
+    planned = mailboxes_workload.plan_mailboxes(found, config, target_upns=existing)
+    _print_mailbox_plan(planned)
+
+
+@mailbox_app.command("migrate")
+def mailbox_migrate(
+    config_path: str = CONFIG_OPTION,
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually apply settings. Without this flag it is a dry run."
+    ),
+) -> None:
+    """Apply mailbox settings to the target tenant (dry run unless --execute).
+
+    Run this after `users migrate` so target mailboxes exist to receive settings.
+    """
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = mailboxes_workload.discover_mailboxes(source)
+    with _client(config, "target") as target:
+        existing = users_workload.discover_target_upns(target)
+        planned = mailboxes_workload.plan_mailboxes(found, config, target_upns=existing)
+        results = mailboxes_workload.migrate_mailboxes(target, planned, config, dry_run=not execute)
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    console.print(f"[bold]{mode}[/bold] — {len(results)} mailboxes processed")
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    for status, count in sorted(counts.items()):
+        console.print(f"  {status}: {count}")
+    if not execute:
+        console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+def _print_mailbox_plan(planned: list) -> None:
+    table = Table(title="Mailbox-settings migration plan")
+    table.add_column("Source UPN")
+    table.add_column("Target UPN")
+    table.add_column("Action")
+    table.add_column("Settings")
+    table.add_column("Reason")
+    for p in planned:
+        color = {"settings": "green", "skip": "yellow"}.get(p.action, "white")
+        table.add_row(
+            p.source_upn,
+            p.target_upn,
+            f"[{color}]{p.action}[/{color}]",
+            str(len(p.settings)),
+            p.reason or "",
+        )
+    console.print(table)
 
 
 def _print_group_plan(planned: list) -> None:
