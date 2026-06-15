@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Bash(pytest*)",
+      "Bash(python -m pytest*)",
+      "Bash(python3 -m pytest*)",
+      "Bash(.venv/bin/python -m pytest*)",
+      "Bash(.venv/bin/pytest*)",
+      "Bash(pip install*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git add*)",
+      "Bash(git commit*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/setup.sh",
+            "timeout": 300,
+            "statusMessage": "Setting up Python dev environment..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \".tool_input.file_path // .tool_response.filePath // empty\"); case \"$f\" in *.py) ;; *) exit 0;; esac; [ -x .venv/bin/python ] || exit 0; out=$(.venv/bin/python -m pytest -q 2>&1) || { echo \"$out\" | tail -25 >&2; exit 2; }",
+            "timeout": 120,
+            "statusMessage": "Running tests..."
+          }
+        ]
+      }
+    ]
+  }
+}
