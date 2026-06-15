@@ -13,6 +13,8 @@ Examples
     m365-migrate mailbox migrate --execute  # apply mailbox settings to target
     m365-migrate files plan --user jane@src.com         # plan a OneDrive copy
     m365-migrate files migrate --user jane@src.com --execute  # copy the drive
+    m365-migrate teams plan               # plan team + channel provisioning
+    m365-migrate teams migrate --execute  # enable Teams + recreate channels
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from m365_migrate.mapping import write_mapping
 from m365_migrate.workloads import files as files_workload
 from m365_migrate.workloads import groups as groups_workload
 from m365_migrate.workloads import mailboxes as mailboxes_workload
+from m365_migrate.workloads import teams as teams_workload
 from m365_migrate.workloads import users as users_workload
 
 app = typer.Typer(help="Microsoft 365 tenant-to-tenant migration tool.", no_args_is_help=True)
@@ -42,6 +45,8 @@ mailbox_app = typer.Typer(help="Exchange Online mailbox-settings workload.", no_
 app.add_typer(mailbox_app, name="mailbox")
 files_app = typer.Typer(help="OneDrive / SharePoint files workload.", no_args_is_help=True)
 app.add_typer(files_app, name="files")
+teams_app = typer.Typer(help="Microsoft Teams + channels workload.", no_args_is_help=True)
+app.add_typer(teams_app, name="teams")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -356,6 +361,84 @@ def files_migrate(
         console.print(f"  {label}: {count}")
     if not execute:
         console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+@teams_app.command("discover")
+def teams_discover(config_path: str = CONFIG_OPTION) -> None:
+    """Read teams (with channels) from the source tenant to the output dir."""
+    config = _load(config_path)
+    with _client(config, "source") as client:
+        found = teams_workload.discover_teams(client)
+    out = Path(config.options.output_dir) / "source_teams.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps([t.model_dump() for t in found], indent=2))
+    console.print(f"Discovered [bold]{len(found)}[/bold] teams -> {out}")
+
+
+@teams_app.command("plan")
+def teams_plan(config_path: str = CONFIG_OPTION) -> None:
+    """Produce a team + channel provisioning plan (read-only)."""
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = teams_workload.discover_teams(source)
+    with _client(config, "target") as target:
+        existing = groups_workload.get_target_group_ids(target)
+    planned = teams_workload.plan_teams(found, existing_target_groups=existing)
+    _print_teams_plan(planned)
+
+
+@teams_app.command("migrate")
+def teams_migrate(
+    config_path: str = CONFIG_OPTION,
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually enable Teams/create channels. Without this flag it is a dry run."
+    ),
+) -> None:
+    """Enable Teams and recreate channels in the target (dry run unless --execute).
+
+    Run this after `groups sync` so each team's backing M365 group exists in the
+    target to be Teams-enabled.
+    """
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = teams_workload.discover_teams(source)
+    with _client(config, "target") as target:
+        existing = groups_workload.get_target_group_ids(target)
+        planned = teams_workload.plan_teams(found, existing_target_groups=existing)
+        results = teams_workload.migrate_teams(target, planned, dry_run=not execute)
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    console.print(f"[bold]{mode}[/bold] — {len(results)} teams processed")
+    counts: dict[str, int] = {}
+    for r in results:
+        for key in ("status", "team", "channels"):
+            value = r.get(key)
+            if value:
+                counts[f"{key}:{value}"] = counts.get(f"{key}:{value}", 0) + 1
+    for label, count in sorted(counts.items()):
+        console.print(f"  {label}: {count}")
+    if not execute:
+        console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
+def _print_teams_plan(planned: list) -> None:
+    table = Table(title="Team provisioning plan")
+    table.add_column("mailNickname")
+    table.add_column("Display name")
+    table.add_column("Action")
+    table.add_column("Channels (create/total)")
+    table.add_column("Reason")
+    for p in planned:
+        color = {"provision": "green", "skip": "yellow"}.get(p.action, "white")
+        creatable = sum(1 for c in p.channels if c.action == "create")
+        table.add_row(
+            p.mail_nickname or "",
+            p.display_name or "",
+            f"[{color}]{p.action}[/{color}]",
+            f"{creatable}/{len(p.channels)}",
+            p.reason or "",
+        )
+    console.print(table)
 
 
 def _print_files_plan(planned: list) -> None:

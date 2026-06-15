@@ -7,8 +7,9 @@ Guidance for AI assistants (Claude Code and others) working in this repository.
 **NewCreative** is a Microsoft 365 **tenant-to-tenant (T2T) migration** tool,
 distributed as the Python package `m365-migrate`. The Users / Identities and
 Groups workloads are implemented end-to-end, plus Exchange mailbox **settings**
-migration and OneDrive / SharePoint **file** copy; remaining workloads are on the
-roadmap (see `docs/architecture.md`).
+migration, OneDrive / SharePoint **file** copy, and **Teams** (enable Teams +
+recreate channels); remaining workloads are on the roadmap (see
+`docs/architecture.md`).
 
 ### Stack & layout
 
@@ -23,12 +24,13 @@ src/m365_migrate/
   config.py          # YAML config + ${ENV:...} secret resolution
   auth.py            # per-tenant client-credentials token providers
   graph_client.py    # Graph REST wrapper: paging + 429/5xx retry
-  models.py          # SourceUser/PlannedUser + Group + Mailbox + DriveItem models
+  models.py          # SourceUser/PlannedUser + Group + Mailbox + DriveItem + Team models
   mapping.py         # UPN rewriting + mapping CSV I/O
   workloads/users.py # Users workload: discover / plan / migrate / enrich
   workloads/groups.py # Groups workload: discover / plan / sync (membership)
   workloads/mailboxes.py # Mailbox settings: discover / plan / migrate
   workloads/files.py # OneDrive/SharePoint: discover / plan / migrate (file copy)
+  workloads/teams.py # Teams: discover / plan / migrate (enable Teams + channels)
   cli.py             # Typer CLI entry point (`m365-migrate`)
 ```
 
