@@ -51,6 +51,11 @@ class GraphClient:
 
     # -- low level ---------------------------------------------------------
 
+    @property
+    def base_url(self) -> str:
+        """The Graph base URL this client targets (e.g. for building $ref links)."""
+        return self._base_url
+
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self._token_provider()}",
@@ -119,6 +124,10 @@ class GraphClient:
     def patch(self, url: str, json: dict[str, Any], **kwargs: Any) -> None:
         """PATCH a JSON body (Graph returns 204 No Content on success)."""
         self.request("PATCH", url, json=json, **kwargs)
+
+    def put(self, url: str, json: dict[str, Any], **kwargs: Any) -> None:
+        """PUT a JSON body (used for reference links like manager/$ref)."""
+        self.request("PUT", url, json=json, **kwargs)
 
     def close(self) -> None:
         self._client.close()

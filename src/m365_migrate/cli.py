@@ -116,6 +116,38 @@ def users_migrate(
         console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
 
 
+@users_app.command("enrich")
+def users_enrich(
+    config_path: str = CONFIG_OPTION,
+    execute: bool = typer.Option(
+        False, "--execute", help="Actually set managers/licenses. Without this flag it is a dry run."
+    ),
+) -> None:
+    """Set manager links and assign licenses on migrated users (dry run unless --execute).
+
+    Run this after `users migrate`; it operates on accounts that already exist
+    in the target tenant.
+    """
+    config = _load(config_path)
+    with _client(config, "source") as source:
+        found = users_workload.discover_users(source)
+    with _client(config, "target") as target:
+        results = users_workload.enrich_users(target, found, config, dry_run=not execute)
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    console.print(f"[bold]{mode}[/bold] — {len(results)} users processed")
+    counts: dict[str, int] = {}
+    for r in results:
+        for key in ("status", "manager", "licenses"):
+            value = r.get(key)
+            if value:
+                counts[f"{key}:{value}"] = counts.get(f"{key}:{value}", 0) + 1
+    for label, count in sorted(counts.items()):
+        console.print(f"  {label}: {count}")
+    if not execute:
+        console.print("\n[yellow]No changes were made.[/yellow] Re-run with --execute to apply.")
+
+
 def _print_plan(planned: list) -> None:
     table = Table(title="User migration plan")
     table.add_column("Source UPN")
