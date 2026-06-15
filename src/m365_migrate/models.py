@@ -260,3 +260,75 @@ class PlannedMailbox(BaseModel):
     action: str
     reason: str | None = None
     settings: dict[str, Any] = {}
+
+
+class DriveGrant(BaseModel):
+    """A direct user permission grant on a drive item (file or folder)."""
+
+    upn: str
+    roles: list[str] = []
+
+
+class DriveItem(BaseModel):
+    """A OneDrive / SharePoint file or folder as read from a source drive.
+
+    Both OneDrive personal storage and SharePoint document libraries are exposed
+    by Graph as *drives* of *driveItems*, so this model serves both.
+    """
+
+    id: str
+    name: str
+    # Path of the parent folder relative to the drive root ("" at the root,
+    # otherwise e.g. "Reports" or "Reports/2025").
+    parent_path: str = ""
+    is_folder: bool = False
+    size: int = 0
+    grants: list[DriveGrant] = []
+
+    @property
+    def relative_path(self) -> str:
+        """Full path of this item relative to the drive root, including its name."""
+        return f"{self.parent_path}/{self.name}" if self.parent_path else self.name
+
+    @classmethod
+    def from_graph(cls, data: dict[str, Any]) -> "DriveItem":
+        parent_ref = data.get("parentReference") or {}
+        raw_path = parent_ref.get("path") or ""
+        # Graph paths look like "/drive/root:" or "/drive/root:/A/B".
+        rel = raw_path.split("root:", 1)[-1].lstrip("/") if "root:" in raw_path else ""
+
+        grants: list[DriveGrant] = []
+        for perm in data.get("permissions") or []:
+            user = (perm.get("grantedToV2") or {}).get("user") or (
+                perm.get("grantedTo") or {}
+            ).get("user") or {}
+            upn = user.get("userPrincipalName") or user.get("email")
+            if upn:
+                grants.append(DriveGrant(upn=upn, roles=perm.get("roles") or []))
+
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            parent_path=rel,
+            is_folder="folder" in data,
+            size=data.get("size", 0),
+            grants=grants,
+        )
+
+
+class PlannedDriveItem(BaseModel):
+    """A drive item copy planned for the target tenant.
+
+    ``action`` is one of: ``copy`` (recreate folder / upload file) or ``skip``
+    (e.g. a file too large for simple upload).
+    """
+
+    source_id: str
+    name: str
+    relative_path: str
+    is_folder: bool
+    size: int = 0
+    action: str
+    reason: str | None = None
+    # Grants with the grantee UPN already rewritten to the target domain.
+    target_grants: list[DriveGrant] = []

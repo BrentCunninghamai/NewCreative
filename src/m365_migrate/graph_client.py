@@ -71,10 +71,14 @@ class GraphClient:
     def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Issue a single request, retrying on throttling/transient errors."""
         target = self._absolute(url)
+        extra_headers = kwargs.pop("headers", None)
         attempt = 0
         while True:
+            headers = self._headers()
+            if extra_headers:
+                headers.update(extra_headers)
             response = self._client.request(
-                method, target, headers=self._headers(), **kwargs
+                method, target, headers=headers, **kwargs
             )
             if response.status_code in _RETRYABLE and attempt < self._max_retries:
                 self._sleep(self._retry_after(response, attempt))
@@ -128,6 +132,26 @@ class GraphClient:
     def put(self, url: str, json: dict[str, Any], **kwargs: Any) -> None:
         """PUT a JSON body (used for reference links like manager/$ref)."""
         self.request("PUT", url, json=json, **kwargs)
+
+    def get_content(self, url: str, **kwargs: Any) -> bytes:
+        """GET a resource and return its raw bytes (e.g. driveItem content)."""
+        return self.request("GET", url, **kwargs).content
+
+    def put_content(
+        self,
+        url: str,
+        data: bytes,
+        *,
+        content_type: str = "application/octet-stream",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """PUT raw bytes (e.g. small-file upload) and return the parsed response."""
+        response = self.request(
+            "PUT", url, content=data, headers={"Content-Type": content_type}, **kwargs
+        )
+        if response.content:
+            return response.json()
+        return {}
 
     def close(self) -> None:
         self._client.close()

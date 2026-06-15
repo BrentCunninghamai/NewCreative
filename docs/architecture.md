@@ -33,6 +33,7 @@ A tool to migrate one Microsoft 365 tenant's contents into another
 | `workloads/users.py` | `discover_users` → `plan_users` → `migrate_users` → `enrich_users`. |
 | `workloads/groups.py` | `discover_groups` → `plan_groups` → `sync_groups`. |
 | `workloads/mailboxes.py` | `discover_mailboxes` → `plan_mailboxes` → `migrate_mailboxes` (settings). |
+| `workloads/files.py` | `discover_drive_items` → `plan_drive_items` → `migrate_drive_items` (OneDrive/SharePoint). |
 | `cli.py` | Typer CLI surface. |
 
 ## Authentication
@@ -91,6 +92,30 @@ no mailbox (404 from the endpoint) are skipped at discovery.
 > a native cross-tenant mailbox move (MRS / migration endpoints) or a third-party
 > tool. That orchestration is tracked separately on the roadmap.
 
+## Files workload flow (OneDrive / SharePoint)
+
+OneDrive personal storage and SharePoint document libraries are both Graph
+*drives* of *driveItems*, so one set of primitives serves both. A drive root is
+either `/users/{upn}/drive` (OneDrive) or `/sites/{id}/drive` (SharePoint).
+
+```
+discover  walk source drive (BFS) + $expand=permissions -> DriveItem[] (folders first)
+plan      classify copy|skip, rewrite grantee UPNs       -> PlannedDriveItem[]
+migrate   POST folders, PUT file content (download->upload), -> results (dry-run default)
+          re-invite resolvable direct user grants
+```
+
+Breadth-first discovery guarantees a parent folder precedes its children, so the
+copy can create folders before populating them. Reads come from the source
+client and writes go to the target client (different tenants).
+
+> **Scale & fidelity caveats.** Content is copied via Graph simple upload
+> (`PUT .../content`); files above `SIMPLE_UPLOAD_LIMIT` are skipped — large-file
+> *upload sessions* and the high-fidelity **SharePoint Migration API** (Azure blob
+> + manifests, version history, metadata) are future work. Only **direct user**
+> grants are reapplied, and only when the grantee resolves to a target account;
+> sharing links and group/external grants are skipped.
+
 ## Roadmap
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
@@ -101,15 +126,18 @@ no mailbox (404 from the endpoint) are skipped at discovery.
 - [x] Exchange Online mailboxes: settings migration (`mailbox migrate`).
 - [ ] Exchange Online mailboxes: content move (mail/calendar/contacts) via native
       cross-tenant mailbox migration.
-- [ ] OneDrive / SharePoint (files, libraries, permissions).
+- [x] OneDrive / SharePoint: copy files/folders + reapply direct user grants
+      (`files migrate`).
+- [ ] OneDrive / SharePoint: large-file upload sessions + SharePoint Migration API
+      (version history, full metadata); sharing links and group/external grants.
 - [ ] Teams (teams, channels, membership, files).
 - [ ] Resumable runs + structured run logs / reporting.
 - [ ] Concurrency with per-tenant throttling budgets.
 
 ## Known limitations (today)
 
-- Users, Groups, and Mailbox-settings workloads exist; mailbox content, files,
-  and Teams do not yet.
+- Users, Groups, Mailbox-settings, and Files workloads exist; mailbox content and
+  Teams do not yet.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
 - Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
@@ -118,6 +146,9 @@ no mailbox (404 from the endpoint) are skipped at discovery.
 - Mailbox: only settings are migrated, not mail/calendar/contact content (which
   needs a native cross-tenant mailbox move). Target mailboxes must already exist
   to receive settings.
+- Files: copied via Graph simple upload, so files over `SIMPLE_UPLOAD_LIMIT` are
+  skipped (no upload sessions yet); version history and most item metadata are not
+  preserved, and only direct user grants that resolve in the target are reapplied.
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.
