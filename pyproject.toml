@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "m365-migrate"
+version = "0.1.0"
+description = "Microsoft 365 tenant-to-tenant (T2T) migration tool"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Unlicense" }
+dependencies = [
+    "httpx>=0.27",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "pydantic>=2.6",
+    "tenacity>=8.2",
+    "azure-identity>=1.16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "respx>=0.21",
+]
+
+[project.scripts]
+m365-migrate = "m365_migrate.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

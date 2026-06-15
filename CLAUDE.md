@@ -2,24 +2,50 @@
 
 Guidance for AI assistants (Claude Code and others) working in this repository.
 
-## Project status: greenfield
+## Project status: early development
 
-**NewCreative** is a brand-new project. As of this writing the repository
-contains only:
+**NewCreative** is a Microsoft 365 **tenant-to-tenant (T2T) migration** tool,
+distributed as the Python package `m365-migrate`. The Users / Identities
+workload is implemented end-to-end; other workloads are on the roadmap (see
+`docs/architecture.md`).
 
-- `README.md` — currently a one-line stub (`# NewCreative` / `Truth`).
-- `LICENSE` — The Unlicense (public domain dedication).
-- `CLAUDE.md` — this file.
+### Stack & layout
 
-There is **no source code, build system, test suite, dependency manifest, or
-CI configuration yet.** Do not assume a language, framework, or toolchain is in
-place — none has been chosen. Treat statements below about "where things go" as
-conventions to establish as the project grows, not as descriptions of existing
-structure.
+- **Language:** Python 3.10+ (CLI built with Typer).
+- **Key deps:** `httpx`, `azure-identity`, `pydantic`, `pyyaml`, `rich`,
+  `tenacity`. Dev: `pytest`, `respx`.
+- **Source:** `src/m365_migrate/`. **Tests:** `tests/`. **Docs:**
+  `docs/architecture.md`. **Manifest:** `pyproject.toml`.
 
-> When you add the first real code, **update this file in the same change** so
-> it stays an accurate map of the codebase. An out-of-date CLAUDE.md is worse
-> than none.
+```
+src/m365_migrate/
+  config.py          # YAML config + ${ENV:...} secret resolution
+  auth.py            # per-tenant client-credentials token providers
+  graph_client.py    # Graph REST wrapper: paging + 429/5xx retry
+  models.py          # SourceUser / PlannedUser models
+  mapping.py         # UPN rewriting + mapping CSV I/O
+  workloads/users.py # Users workload: discover / plan / migrate
+  cli.py             # Typer CLI entry point (`m365-migrate`)
+```
+
+### Commands
+
+- **Install (dev):** `pip install -e ".[dev]"`
+- **Test:** `pytest` (mocks Graph via `respx`; needs no real tenants)
+- **Run:** `m365-migrate --help` (or `python -m m365_migrate --help`)
+
+### Conventions specific to this project
+
+- **Plan before write.** Each workload separates a read-only plan phase from the
+  migrate phase; `migrate` is a dry run unless `--execute` is passed.
+- **Never commit credentials.** Real config goes in git-ignored `config.yaml`;
+  secrets resolve from env via `${ENV:NAME}`. Only `config.example.yaml` is
+  committed.
+- **Keep tests offline.** Inject the HTTP client / token provider so tests mock
+  Graph rather than hitting the network.
+
+> When you add a new workload or change structure, **update this file and
+> `docs/architecture.md` in the same change** so they stay an accurate map.
 
 ## License: public domain
 
