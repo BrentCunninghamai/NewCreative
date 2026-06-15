@@ -53,6 +53,108 @@ def test_migrate_dry_run_writes_nothing(config, static_token):
     assert results == [{"target_upn": "jane@fabrikam.onmicrosoft.com", "status": "would-create"}]
 
 
+def test_from_graph_parses_manager_and_licenses():
+    data = {
+        "id": "1",
+        "userPrincipalName": "jane@contoso.onmicrosoft.com",
+        "userType": "Member",
+        "assignedLicenses": [{"skuId": "sku-A"}, {"skuId": "sku-B"}],
+        "manager": {"id": "9", "userPrincipalName": "boss@contoso.onmicrosoft.com"},
+    }
+    u = SourceUser.from_graph(data)
+    assert u.manager_upn == "boss@contoso.onmicrosoft.com"
+    assert u.assigned_sku_ids == ["sku-A", "sku-B"]
+
+
+@respx.mock
+def test_enrich_dry_run_reports_without_writing(config, static_token):
+    # Target has both jane and her manager; one license SKU is available there.
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "value": [
+                    {"id": "tj", "userPrincipalName": "jane@fabrikam.onmicrosoft.com"},
+                    {"id": "tb", "userPrincipalName": "boss@fabrikam.onmicrosoft.com"},
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE}/subscribedSkus").mock(
+        return_value=httpx.Response(200, json={"value": [{"skuId": "sku-A"}]})
+    )
+    users = [
+        SourceUser(
+            id="1",
+            user_principal_name="jane@contoso.onmicrosoft.com",
+            manager_upn="boss@contoso.onmicrosoft.com",
+            assigned_sku_ids=["sku-A", "sku-unavailable"],
+        )
+    ]
+    client = GraphClient(static_token)
+    results = uw.enrich_users(client, users, config, dry_run=True)
+
+    assert results[0]["manager"] == "would-set"
+    # Only the SKU available in the target counts.
+    assert results[0]["licenses"] == "would-assign:1"
+
+
+@respx.mock
+def test_enrich_execute_sets_manager_and_assigns_license(config, static_token):
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "value": [
+                    {"id": "tj", "userPrincipalName": "jane@fabrikam.onmicrosoft.com"},
+                    {"id": "tb", "userPrincipalName": "boss@fabrikam.onmicrosoft.com"},
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE}/subscribedSkus").mock(
+        return_value=httpx.Response(200, json={"value": [{"skuId": "sku-A"}]})
+    )
+    mgr_ref = respx.put(f"{BASE}/users/tj/manager/$ref").mock(
+        return_value=httpx.Response(204)
+    )
+    assign = respx.post(f"{BASE}/users/tj/assignLicense").mock(
+        return_value=httpx.Response(200, json={"id": "tj"})
+    )
+    users = [
+        SourceUser(
+            id="1",
+            user_principal_name="jane@contoso.onmicrosoft.com",
+            manager_upn="boss@contoso.onmicrosoft.com",
+            assigned_sku_ids=["sku-A"],
+        )
+    ]
+    client = GraphClient(static_token)
+    results = uw.enrich_users(client, users, config, dry_run=False)
+
+    assert mgr_ref.called
+    assert assign.called
+    assert results[0]["manager"] == "set"
+    assert results[0]["licenses"] == "assigned:1"
+    # The manager $ref points at the resolved target manager id.
+    body = mgr_ref.calls.last.request.content.decode()
+    assert "/users/tb" in body
+
+
+@respx.mock
+def test_enrich_skips_user_missing_in_target(config, static_token):
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    respx.get(f"{BASE}/subscribedSkus").mock(
+        return_value=httpx.Response(200, json={"value": []})
+    )
+    users = [SourceUser(id="1", user_principal_name="ghost@contoso.onmicrosoft.com")]
+    client = GraphClient(static_token)
+    results = uw.enrich_users(client, users, config, dry_run=False)
+    assert results[0]["status"] == "skipped:not-in-target"
+
+
 @respx.mock
 def test_migrate_execute_creates_user(config, static_token):
     create = respx.post(f"{BASE}/users").mock(

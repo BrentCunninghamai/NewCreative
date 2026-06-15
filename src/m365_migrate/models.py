@@ -22,7 +22,11 @@ USER_SELECT_FIELDS = [
     "accountEnabled",
     "userType",
     "usageLocation",
+    "assignedLicenses",
 ]
+
+# Expanded alongside the user so we learn each user's manager in one request.
+USER_EXPAND = "manager($select=id,userPrincipalName)"
 
 
 class SourceUser(BaseModel):
@@ -41,9 +45,15 @@ class SourceUser(BaseModel):
     account_enabled: bool = True
     user_type: str = "Member"
     usage_location: str | None = None
+    # UPN of this user's manager in the source tenant (from $expand=manager).
+    manager_upn: str | None = None
+    # License SKU IDs assigned to the user in the source tenant.
+    assigned_sku_ids: list[str] = []
 
     @classmethod
     def from_graph(cls, data: dict[str, Any]) -> "SourceUser":
+        manager = data.get("manager") or {}
+        licenses = data.get("assignedLicenses") or []
         return cls(
             id=data["id"],
             user_principal_name=data["userPrincipalName"],
@@ -58,6 +68,8 @@ class SourceUser(BaseModel):
             account_enabled=data.get("accountEnabled", True),
             user_type=data.get("userType") or "Member",
             usage_location=data.get("usageLocation"),
+            manager_upn=manager.get("userPrincipalName"),
+            assigned_sku_ids=[lic["skuId"] for lic in licenses if lic.get("skuId")],
         )
 
 

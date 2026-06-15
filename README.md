@@ -46,10 +46,14 @@ m365-migrate users discover             # dump source users to out/source_users.
 m365-migrate users plan                 # write out/user_mapping.csv + print plan
 m365-migrate users migrate              # DRY RUN — shows what would happen
 m365-migrate users migrate --execute    # actually create users in the target
+m365-migrate users enrich               # DRY RUN — manager links + licenses
+m365-migrate users enrich --execute     # set managers and assign licenses
 ```
 
-`migrate` is a **dry run unless you pass `--execute`.** Created users get a
-strong random password and are flagged to reset it on first sign-in.
+`migrate` and `enrich` are both a **dry run unless you pass `--execute`.**
+Created users get a strong random password and are flagged to reset it on first
+sign-in. Run `enrich` after `migrate`: it sets manager relationships and assigns
+each user's source license SKUs that are available in the target tenant.
 
 ## Develop
 

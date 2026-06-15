@@ -42,18 +42,24 @@ needs read access; the target app needs write access.
 ## Users workload flow
 
 ```
-discover  GET /users (source)                 -> SourceUser[]
-plan      rewrite UPN domain, filter guests,  -> PlannedUser[] (create|skip|conflict)
+discover  GET /users (source, $expand=manager) -> SourceUser[] (incl. licenses)
+plan      rewrite UPN domain, filter guests,   -> PlannedUser[] (create|skip|conflict)
           diff against target /users
-migrate   POST /users (target) for "create"   -> results (dry-run by default)
+migrate   POST /users (target) for "create"    -> results (dry-run by default)
+enrich    resolve target ids via UPN mapping,  -> results (dry-run by default)
+          PUT manager/$ref + POST assignLicense
 ```
 
 Conflicts (target UPN already exists) are surfaced, never silently overwritten.
+``enrich`` runs after ``migrate``: it sets each user's manager (when both the
+user and manager exist in the target) and assigns the source user's license
+SKUs that are available in the target tenant.
 
 ## Roadmap
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
-- [ ] Users: group membership, license assignment, manager links.
+- [x] Users: license assignment + manager links (`enrich`).
+- [ ] Users: group membership.
 - [ ] Exchange Online mailboxes (mail, calendar, contacts).
 - [ ] OneDrive / SharePoint (files, libraries, permissions).
 - [ ] Teams (teams, channels, membership, files).
@@ -62,8 +68,10 @@ Conflicts (target UPN already exists) are surfaced, never silently overwritten.
 
 ## Known limitations (today)
 
-- Only the Users workload exists; it provisions accounts but not yet group
-  membership, licenses, or manager relationships.
+- Only the Users workload exists; it provisions accounts, manager links, and
+  licenses, but not yet group membership.
+- License assignment requires the matching SKU to exist in the target tenant;
+  unavailable SKUs are skipped (not purchased automatically).
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.
