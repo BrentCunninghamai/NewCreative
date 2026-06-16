@@ -47,9 +47,19 @@ CI (`.github/workflows/dotnet.yml`) runs this on every push/PR.
 ## Desktop app
 
 `M365Migrate.App` is a single-window WPF UI: enter both tenants' app-registration
-details (tenant id, client id, secret, primary domain), pick a workload, then
-**Discover & Plan** and **Migrate** (dry run unless *Execute* is ticked). Results
-stream into a grid. Users and Groups are wired up; more workloads follow.
+details (tenant id, client id, secret, primary domain), **Test connections** to
+confirm auth + permissions, pick a workload, then **Discover & Plan** and
+**Migrate** (dry run unless *Execute* is ticked). Results stream into a grid. All
+workloads (Users, Groups, Mailboxes, Files, Teams) are wired up.
+
+### Prerequisites
+
+Each tenant needs an **Azure AD app registration** (client id + secret) with
+admin-consented Graph *application* permissions for the workloads you run, e.g.
+`User.ReadWrite.All`, `Group.ReadWrite.All`, `MailboxSettings.ReadWrite`,
+`Files.ReadWrite.All`, `Sites.ReadWrite.All`, `Team.Create`, `Channel.Create`.
+Use **Test connections** first — it calls `/organization` on both tenants and
+reports the org names, so credential/permission problems surface before a run.
 
 ## Packaging (Windows)
 
