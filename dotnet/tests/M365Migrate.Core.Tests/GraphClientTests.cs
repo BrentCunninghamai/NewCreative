@@ -57,6 +57,38 @@ public class GraphClientTests
     }
 
     [Fact]
+    public async Task UploadLargeFile_ChunksWithContentRanges()
+    {
+        var ranges = new List<string>();
+        var puts = 0;
+        var handler = new FakeHttpMessageHandler((req, _) =>
+        {
+            var uri = req.RequestUri!.ToString();
+            if (req.Method == HttpMethod.Post && uri.Contains("createUploadSession"))
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK, "{\"uploadUrl\":\"https://upload.example/sess\"}");
+            if (req.Method == HttpMethod.Put && uri.Contains("upload.example"))
+            {
+                if (req.Content!.Headers.TryGetValues("Content-Range", out var v))
+                    ranges.Add(v.First());
+                puts++;
+                return puts == 1
+                    ? FakeHttpMessageHandler.Json(HttpStatusCode.Accepted, "{\"nextExpectedRanges\":[\"4-\"]}")
+                    : FakeHttpMessageHandler.Json(HttpStatusCode.Created, "{\"id\":\"done\"}");
+            }
+            return FakeHttpMessageHandler.Json(HttpStatusCode.OK, "{}");
+        });
+
+        var client = Build(handler);
+        var result = await client.UploadLargeFileAsync(
+            "/drive/root:/big.bin:/createUploadSession",
+            System.Text.Encoding.ASCII.GetBytes("ABCDEF"),
+            chunkSize: 4);
+
+        Assert.Equal("done", result.GetStringOrNull("id"));
+        Assert.Equal(new[] { "bytes 0-3/6", "bytes 4-5/6" }, ranges);
+    }
+
+    [Fact]
     public async Task Throws_GraphException_On4xx()
     {
         var handler = new FakeHttpMessageHandler((_, __) =>

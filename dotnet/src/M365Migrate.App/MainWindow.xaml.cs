@@ -27,6 +27,7 @@ public partial class MainWindow : Window
         _vm.TargetDomain = TargetDomain.Text;
 
         _vm.Workload = (WorkloadCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Users";
+        _vm.Scope = ScopeBox.Text;
         _vm.RewriteUpn = RewriteUpnCheck.IsChecked == true;
         _vm.SkipGuests = SkipGuestsCheck.IsChecked == true;
         _vm.Execute = ExecuteCheck.IsChecked == true;

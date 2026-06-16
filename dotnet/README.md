@@ -29,9 +29,10 @@ default:
 - **Groups** — discover, plan, sync membership + ownership; dynamic groups
   recreated with their membership rule.
 - **Mailboxes** — discover, plan, migrate Exchange Online mailbox *settings*.
+- **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
+  simple upload, large files via resumable upload session; reapply direct grants.
 
-Remaining workloads (OneDrive/SharePoint files incl. large-file upload sessions,
-Teams) are ported next, mirroring the Python originals.
+Teams is ported next, mirroring the Python original.
 
 ## Build & test
 

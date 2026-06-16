@@ -18,6 +18,10 @@ public sealed class GraphClient
     public const string DefaultBaseUrl = "https://graph.microsoft.com/v1.0";
     private static readonly HashSet<int> Retryable = new() { 429, 500, 502, 503, 504 };
 
+    // Upload-session chunks must be a multiple of 320 KiB (except the final chunk).
+    public const int UploadFragment = 320 * 1024;
+    public const int DefaultUploadChunk = 10 * UploadFragment; // 3.2 MiB per PUT
+
     private readonly HttpClient _http;
     private readonly TokenProvider _tokenProvider;
     private readonly int _maxRetries;
@@ -149,6 +153,85 @@ public sealed class GraphClient
     {
         using var response = await SendAsync(HttpMethod.Put, url, () => JsonBody(body), ct);
         _ = response;
+    }
+
+    /// <summary>GET a resource and return its raw bytes (e.g. driveItem content).</summary>
+    public async Task<byte[]> GetBytesAsync(string url, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Get, url, null, ct);
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
+    /// <summary>PUT raw bytes (small-file upload) and return the parsed response.</summary>
+    public async Task<JsonElement> PutBytesAsync(string url, byte[] data, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Put, url, () =>
+        {
+            var content = new ByteArrayContent(data);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            return content;
+        }, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(text))
+            return default;
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Upload <paramref name="data"/> via a resumable upload session, in chunks.
+    /// The upload URL Graph returns is pre-authenticated, so the bearer token is
+    /// deliberately not sent on the chunk PUTs.
+    /// </summary>
+    public async Task<JsonElement> UploadLargeFileAsync(
+        string createSessionUrl,
+        byte[] data,
+        string conflictBehavior = "replace",
+        int chunkSize = DefaultUploadChunk,
+        CancellationToken ct = default)
+    {
+        var session = await PostJsonAsync(
+            createSessionUrl,
+            new Dictionary<string, object>
+            {
+                ["item"] = new Dictionary<string, object>
+                {
+                    ["@microsoft.graph.conflictBehavior"] = conflictBehavior,
+                },
+            },
+            ct);
+        var uploadUrl = session.GetStringOrNull("uploadUrl");
+        if (uploadUrl is null)
+            throw new GraphException(500, "createUploadSession returned no uploadUrl");
+
+        var total = data.Length;
+        var start = 0;
+        string lastBody = "";
+        while (start < total)
+        {
+            var end = Math.Min(start + chunkSize, total);
+            var length = end - start;
+            var chunk = new byte[length];
+            Array.Copy(data, start, chunk, 0, length);
+
+            var content = new ByteArrayContent(chunk);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            content.Headers.TryAddWithoutValidation("Content-Range", $"bytes {start}-{end - 1}/{total}");
+
+            using var response = await _http.PutAsync(uploadUrl, content, ct);
+            var code = (int)response.StatusCode;
+            lastBody = await response.Content.ReadAsStringAsync(ct);
+            if (code >= 400)
+                throw new GraphException(code, lastBody);
+            start = end;
+        }
+
+        if (!string.IsNullOrWhiteSpace(lastBody))
+        {
+            using var doc = JsonDocument.Parse(lastBody);
+            return doc.RootElement.Clone();
+        }
+        return default;
     }
 
     private static HttpContent JsonBody(object body)
