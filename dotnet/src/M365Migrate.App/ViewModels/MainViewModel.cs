@@ -53,6 +53,7 @@ public sealed class MainViewModel : ViewModelBase
     private List<PlannedDriveItem>? _plannedFiles;
     private string? _filesSourceRoot;
     private string? _filesTargetRoot;
+    private List<PlannedTeam>? _plannedTeams;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -97,6 +98,7 @@ public sealed class MainViewModel : ViewModelBase
         _plannedGroups = null;
         _plannedMailboxes = null;
         _plannedFiles = null;
+        _plannedTeams = null;
         try
         {
             var config = BuildConfig();
@@ -155,6 +157,25 @@ public sealed class MainViewModel : ViewModelBase
                     });
                 Status = $"Planned {_plannedFiles.Count} drive items for {Scope}. Review, then Migrate.";
             }
+            else if (Workload == "Teams")
+            {
+                var workload = new TeamsWorkload(config);
+                var teams = await workload.DiscoverAsync(source);
+                var existing = await GroupsWorkload.GetTargetGroupIdsAsync(target);
+                _plannedTeams = workload.Plan(teams, existing);
+                foreach (var p in _plannedTeams)
+                {
+                    var creatable = p.Channels.Count(c => c.Action == "create");
+                    Rows.Add(new PlanRow
+                    {
+                        Name = p.MailNickname ?? "",
+                        Action = p.Action,
+                        Detail = $"channels {creatable}/{p.Channels.Count}",
+                        Reason = p.Reason ?? "",
+                    });
+                }
+                Status = $"Planned {_plannedTeams.Count} teams. Review, then Migrate.";
+            }
             else
             {
                 var workload = new UsersWorkload(config);
@@ -186,7 +207,8 @@ public sealed class MainViewModel : ViewModelBase
     public async Task MigrateAsync()
     {
         if (IsBusy) return;
-        if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null && _plannedFiles is null)
+        if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
+            && _plannedFiles is null && _plannedTeams is null)
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -217,6 +239,10 @@ public sealed class MainViewModel : ViewModelBase
                 var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
                 results = await new FilesWorkload(config).MigrateDriveItemsAsync(
                     source, target, _plannedFiles, _filesSourceRoot!, _filesTargetRoot!, dryRun: !Execute);
+            }
+            else if (Workload == "Teams" && _plannedTeams is not null)
+            {
+                results = await new TeamsWorkload(config).MigrateAsync(target, _plannedTeams, dryRun: !Execute);
             }
             else if (_plannedUsers is not null)
             {
