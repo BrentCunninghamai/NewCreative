@@ -33,6 +33,12 @@ public partial class MainWindow : Window
         _vm.Execute = ExecuteCheck.IsChecked == true;
     }
 
+    private async void OnTestClick(object sender, RoutedEventArgs e)
+    {
+        ApplyInputs();
+        await _vm.TestConnectionsAsync();
+    }
+
     private async void OnPlanClick(object sender, RoutedEventArgs e)
     {
         ApplyInputs();

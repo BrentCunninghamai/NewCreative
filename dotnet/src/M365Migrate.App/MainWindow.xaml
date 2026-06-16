@@ -52,9 +52,13 @@
                 <CheckBox x:Name="SkipGuestsCheck" Content="Skip guest users" IsChecked="True" Margin="0,0,0,4" />
                 <CheckBox x:Name="ExecuteCheck" Content="Execute (unchecked = dry run)" Margin="0,0,0,8" />
 
+                <Button x:Name="TestButton" Content="Test connections" Height="30" Margin="0,8,0,2" Click="OnTestClick" />
                 <Button x:Name="PlanButton" Content="Discover &amp; Plan" Height="34" Margin="0,4" Click="OnPlanClick" />
                 <Button x:Name="MigrateButton" Content="Migrate" Height="34" Margin="0,4" Click="OnMigrateClick" />
                 <ProgressBar x:Name="BusyBar" Height="6" IsIndeterminate="{Binding IsBusy}" Margin="0,6,0,0" />
+
+                <TextBlock TextWrapping="Wrap" Foreground="#666" FontSize="11" Margin="0,10,0,0"
+                           Text="Each tenant needs an Azure AD app registration (client id + secret) with admin-consented Graph application permissions. Start with Test connections, then Discover &amp; Plan. Migrate is a dry run until Execute is ticked." />
             </StackPanel>
         </ScrollViewer>
 

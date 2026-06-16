@@ -85,6 +85,38 @@ public sealed class MainViewModel : ViewModelBase
         return null;
     }
 
+    /// <summary>Verify both tenants authenticate and Graph is reachable.</summary>
+    public async Task TestConnectionsAsync()
+    {
+        if (IsBusy) return;
+        var error = Validate();
+        if (error is not null) { Status = error; return; }
+
+        IsBusy = true;
+        try
+        {
+            var config = BuildConfig();
+            Status = "Testing connections to both tenants...";
+
+            using var sourceHttp = new HttpClient();
+            using var targetHttp = new HttpClient();
+            var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+            var target = new GraphClient(targetHttp, TokenProviders.ForTenant(config.Target));
+
+            var sourceOrg = await ConnectionTester.CheckAsync(source);
+            var targetOrg = await ConnectionTester.CheckAsync(target);
+            Status = $"Connected OK.  Source: \"{sourceOrg}\"   Target: \"{targetOrg}\".  Ready to Discover & Plan.";
+        }
+        catch (Exception ex)
+        {
+            Status = "Connection failed: " + ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     /// <summary>Connect to both tenants, discover the source, and build a plan.</summary>
     public async Task PlanAsync()
     {
