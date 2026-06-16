@@ -15,7 +15,7 @@ dotnet/
   src/
     M365Migrate.Core/   net8.0 class library — the engine (auth, Graph client,
                         models, workloads). Cross-platform; builds/tests on CI.
-    M365Migrate.App/    net8.0-windows WPF desktop UI (Windows-only build). [stage 2]
+    M365Migrate.App/    net8.0-windows WPF desktop UI (Windows-only build).
   tests/
     M365Migrate.Core.Tests/  xUnit tests for the engine (offline; fake HttpClient).
 ```
@@ -42,18 +42,26 @@ dotnet test dotnet/tests/M365Migrate.Core.Tests/M365Migrate.Core.Tests.csproj
 
 CI (`.github/workflows/dotnet.yml`) runs this on every push/PR.
 
+## Desktop app
+
+`M365Migrate.App` is a single-window WPF UI: enter both tenants' app-registration
+details (tenant id, client id, secret, primary domain), pick a workload, then
+**Discover & Plan** and **Migrate** (dry run unless *Execute* is ticked). Results
+stream into a grid. Users and Groups are wired up; more workloads follow.
+
 ## Packaging (Windows)
 
-The WPF app (stage 2) publishes to a single self-contained executable:
+The app publishes to a single self-contained executable:
 
 ```bash
 dotnet publish dotnet/src/M365Migrate.App -c Release -r win-x64 \
-  --self-contained -p:PublishSingleFile=true
+  --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
-This produces a downloadable `.exe` that runs on a Windows machine with no
-prerequisites. CI will build it on a `windows-latest` runner and attach it as an
-artifact.
+This produces a downloadable `M365Migrate.exe` that runs on a Windows machine with
+no prerequisites. CI (`.github/workflows/dotnet.yml`) builds it on a
+`windows-latest` runner and uploads it as the **`m365-migrate-windows`** artifact
+on every push/PR.
 
 ## Design notes
 

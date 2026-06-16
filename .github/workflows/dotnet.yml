@@ -24,3 +24,29 @@ jobs:
 
       - name: Test
         run: dotnet test dotnet/tests/M365Migrate.Core.Tests/M365Migrate.Core.Tests.csproj --configuration Release --no-restore
+
+  app:
+    name: Build & publish Windows app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # WPF (net8.0-windows) builds only on Windows. Publish a self-contained,
+      # single-file executable that runs on a Windows machine with no prerequisites.
+      - name: Publish single-file exe
+        run: >
+          dotnet publish dotnet/src/M365Migrate.App/M365Migrate.App.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
+      - name: Upload Windows app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: m365-migrate-windows
+          path: publish/M365Migrate.exe
+          if-no-files-found: error

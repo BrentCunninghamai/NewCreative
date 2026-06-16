@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>M365Migrate.App</RootNamespace>
+    <AssemblyName>M365Migrate</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../M365Migrate.Core/M365Migrate.Core.csproj" />
+  </ItemGroup>
+
+</Project>
