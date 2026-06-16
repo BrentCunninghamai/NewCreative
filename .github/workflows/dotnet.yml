@@ -1,0 +1,26 @@
+name: dotnet
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  core:
+    name: Build & test engine (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # The cross-platform engine (M365Migrate.Core) and its tests build on Linux.
+      # The WPF app (net8.0-windows) is built/published by a separate Windows job
+      # once it lands.
+      - name: Restore
+        run: dotnet restore dotnet/tests/M365Migrate.Core.Tests/M365Migrate.Core.Tests.csproj
+
+      - name: Test
+        run: dotnet test dotnet/tests/M365Migrate.Core.Tests/M365Migrate.Core.Tests.csproj --configuration Release --no-restore

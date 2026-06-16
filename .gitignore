@@ -26,3 +26,9 @@ out/
 
 # Personal Claude Code overrides (permissions etc.) — keep out of shared config
 .claude/settings.local.json
+
+# .NET build output
+[Bb]in/
+[Oo]bj/
+*.user
+publish/

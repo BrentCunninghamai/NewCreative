@@ -4,12 +4,19 @@ Guidance for AI assistants (Claude Code and others) working in this repository.
 
 ## Project status: early development
 
-**NewCreative** is a Microsoft 365 **tenant-to-tenant (T2T) migration** tool,
-distributed as the Python package `m365-migrate`. The Users / Identities and
-Groups workloads are implemented end-to-end, plus Exchange mailbox **settings**
-migration, OneDrive / SharePoint **file** copy, and **Teams** (enable Teams +
-recreate channels); remaining workloads are on the roadmap (see
-`docs/architecture.md`).
+**NewCreative** is a Microsoft 365 **tenant-to-tenant (T2T) migration** tool.
+
+**Product direction (chosen by the maintainer): a packaged Windows desktop app**
+(ShareGate-style UI) built on **.NET 8 / WPF**, under `dotnet/`. The reusable
+engine lives in `dotnet/src/M365Migrate.Core` with xUnit tests in
+`dotnet/tests/`; the WPF UI is `dotnet/src/M365Migrate.App`. See `dotnet/README.md`.
+
+The original **Python package `m365-migrate`** (this repo's `src/m365_migrate/`)
+is the proven reference being ported to .NET. It implements Users, Groups
+(membership, owners, dynamic rules), Exchange mailbox **settings**, OneDrive /
+SharePoint **file** copy (incl. large-file upload sessions), and **Teams**. It
+stays in the repo during the port, then will be retired. When working on the
+product, prefer the .NET solution; use the Python code as the behavioral spec.
 
 ### Stack & layout
 
