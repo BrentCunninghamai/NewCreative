@@ -50,4 +50,21 @@ public partial class MainWindow : Window
         ApplyInputs();
         await _vm.MigrateAsync();
     }
+
+    private void OnOpenFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(_vm.ReportsDirectory);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = _vm.ReportsDirectory,
+                UseShellExecute = true,
+            });
+        }
+        catch
+        {
+            // opening the folder is best-effort
+        }
+    }
 }
