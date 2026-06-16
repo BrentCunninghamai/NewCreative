@@ -28,6 +28,8 @@ jobs:
   app:
     name: Build & publish Windows app
     runs-on: windows-latest
+    permissions:
+      contents: write   # needed to publish the rolling release
     steps:
       - uses: actions/checkout@v4
 
@@ -50,3 +52,14 @@ jobs:
           name: m365-migrate-windows
           path: publish/M365Migrate.exe
           if-no-files-found: error
+
+      # On every push to main, attach the exe to a rolling "latest" release so it
+      # has a permanent download URL (.../releases/latest).
+      - name: Publish rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Windows build
+          body: Automated build of the m365-migrate Windows app from the latest main.
+          files: publish/M365Migrate.exe
