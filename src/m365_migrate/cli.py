@@ -492,12 +492,14 @@ def _print_group_plan(planned: list) -> None:
     table.add_column("Reason")
     for p in planned:
         color = {"create": "green", "exists": "cyan", "skip": "yellow"}.get(p.action, "white")
+        kind = f"{p.kind} (dynamic)" if p.is_dynamic else p.kind
+        members = "rule" if p.is_dynamic else str(len(p.target_member_upns))
         table.add_row(
             p.mail_nickname or "",
             p.display_name or "",
-            p.kind,
+            kind,
             f"[{color}]{p.action}[/{color}]",
-            str(len(p.target_member_upns)),
+            members,
             str(len(p.target_owner_upns)),
             p.reason or "",
         )

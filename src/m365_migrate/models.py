@@ -117,6 +117,8 @@ GROUP_SELECT_FIELDS = [
     "securityEnabled",
     "mailEnabled",
     "visibility",
+    "membershipRule",
+    "membershipRuleProcessingState",
 ]
 
 # Expanded alongside each group so we learn its user members and owners in one
@@ -141,11 +143,18 @@ class SourceGroup(BaseModel):
     member_upns: list[str] = []
     # UPNs of user owners (a group must have an owner before it can be Teams-enabled).
     owner_upns: list[str] = []
+    # For dynamic groups: the membership rule that drives membership.
+    membership_rule: str | None = None
 
     @property
     def is_unified(self) -> bool:
         """True for Microsoft 365 ("Unified") groups."""
         return any(t.lower() == "unified" for t in self.group_types)
+
+    @property
+    def is_dynamic(self) -> bool:
+        """True for groups whose membership is driven by a rule, not assignment."""
+        return any(t.lower() == "dynamicmembership" for t in self.group_types)
 
     @property
     def kind(self) -> str:
@@ -189,6 +198,7 @@ class SourceGroup(BaseModel):
                 for o in owners
                 if o.get("userPrincipalName")
             ],
+            membership_rule=data.get("membershipRule"),
         )
 
 
@@ -211,6 +221,9 @@ class PlannedGroup(BaseModel):
     target_member_upns: list[str] = []
     # Owner UPNs already rewritten to the target domain.
     target_owner_upns: list[str] = []
+    # Dynamic groups carry a membership rule instead of assigned members.
+    is_dynamic: bool = False
+    membership_rule: str | None = None
 
     def to_graph_body(self) -> dict[str, Any]:
         """Build the Graph ``POST /groups`` request body for this planned group."""
@@ -219,10 +232,16 @@ class PlannedGroup(BaseModel):
             "mailNickname": self.mail_nickname,
             "description": self.description,
         }
+        group_types = ["Unified"] if self.kind == "microsoft365" else []
         if self.kind == "microsoft365":
-            body.update(groupTypes=["Unified"], mailEnabled=True, securityEnabled=False)
+            body.update(mailEnabled=True, securityEnabled=False)
         else:  # security
-            body.update(groupTypes=[], mailEnabled=False, securityEnabled=True)
+            body.update(mailEnabled=False, securityEnabled=True)
+        if self.is_dynamic:
+            group_types = [*group_types, "DynamicMembership"]
+            body["membershipRule"] = self.membership_rule
+            body["membershipRuleProcessingState"] = "On"
+        body["groupTypes"] = group_types
         # Drop keys Graph would reject as null.
         return {k: v for k, v in body.items() if v is not None}
 
