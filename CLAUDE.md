@@ -27,7 +27,7 @@ src/m365_migrate/
   models.py          # SourceUser/PlannedUser + Group + Mailbox + DriveItem + Team models
   mapping.py         # UPN rewriting + mapping CSV I/O
   workloads/users.py # Users workload: discover / plan / migrate / enrich
-  workloads/groups.py # Groups workload: discover / plan / sync (membership)
+  workloads/groups.py # Groups workload: discover / plan / sync (membership + owners)
   workloads/mailboxes.py # Mailbox settings: discover / plan / migrate
   workloads/files.py # OneDrive/SharePoint: discover / plan / migrate (file copy)
   workloads/teams.py # Teams: discover / plan / migrate (enable Teams + channels)

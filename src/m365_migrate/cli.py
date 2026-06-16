@@ -216,7 +216,7 @@ def groups_sync(
     console.print(f"[bold]{mode}[/bold] — {len(results)} groups processed")
     counts: dict[str, int] = {}
     for r in results:
-        for key in ("status", "group", "members"):
+        for key in ("status", "group", "members", "owners"):
             value = r.get(key)
             if value:
                 counts[f"{key}:{value}"] = counts.get(f"{key}:{value}", 0) + 1
@@ -488,6 +488,7 @@ def _print_group_plan(planned: list) -> None:
     table.add_column("Kind")
     table.add_column("Action")
     table.add_column("Members")
+    table.add_column("Owners")
     table.add_column("Reason")
     for p in planned:
         color = {"create": "green", "exists": "cyan", "skip": "yellow"}.get(p.action, "white")
@@ -497,6 +498,7 @@ def _print_group_plan(planned: list) -> None:
             p.kind,
             f"[{color}]{p.action}[/{color}]",
             str(len(p.target_member_upns)),
+            str(len(p.target_owner_upns)),
             p.reason or "",
         )
     console.print(table)

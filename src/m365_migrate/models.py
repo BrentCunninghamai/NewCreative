@@ -119,12 +119,15 @@ GROUP_SELECT_FIELDS = [
     "visibility",
 ]
 
-# Expanded alongside each group so we learn its user members in one request.
-GROUP_EXPAND = "members($select=id,userPrincipalName)"
+# Expanded alongside each group so we learn its user members and owners in one
+# request.
+GROUP_EXPAND = (
+    "members($select=id,userPrincipalName),owners($select=id,userPrincipalName)"
+)
 
 
 class SourceGroup(BaseModel):
-    """A group as read from the source tenant, with its user members."""
+    """A group as read from the source tenant, with its user members and owners."""
 
     id: str
     display_name: str | None = None
@@ -136,6 +139,8 @@ class SourceGroup(BaseModel):
     visibility: str | None = None
     # UPNs of user members (non-user directory objects are ignored).
     member_upns: list[str] = []
+    # UPNs of user owners (a group must have an owner before it can be Teams-enabled).
+    owner_upns: list[str] = []
 
     @property
     def is_unified(self) -> bool:
@@ -164,6 +169,7 @@ class SourceGroup(BaseModel):
     @classmethod
     def from_graph(cls, data: dict[str, Any]) -> "SourceGroup":
         members = data.get("members") or []
+        owners = data.get("owners") or []
         return cls(
             id=data["id"],
             display_name=data.get("displayName"),
@@ -177,6 +183,11 @@ class SourceGroup(BaseModel):
                 m["userPrincipalName"]
                 for m in members
                 if m.get("userPrincipalName")
+            ],
+            owner_upns=[
+                o["userPrincipalName"]
+                for o in owners
+                if o.get("userPrincipalName")
             ],
         )
 
@@ -198,6 +209,8 @@ class PlannedGroup(BaseModel):
     description: str | None = None
     # Member UPNs already rewritten to the target domain.
     target_member_upns: list[str] = []
+    # Owner UPNs already rewritten to the target domain.
+    target_owner_upns: list[str] = []
 
     def to_graph_body(self) -> dict[str, Any]:
         """Build the Graph ``POST /groups`` request body for this planned group."""
