@@ -23,7 +23,7 @@ dotnet/
 ## Engine status
 
 Ported from the Python engine, staged discover → plan → migrate with a dry-run
-default:
+default. **All workloads are now ported** (full parity with the Python engine):
 
 - **Users** — discover, plan (conflict + guest filtering), migrate.
 - **Groups** — discover, plan, sync membership + ownership; dynamic groups
@@ -31,8 +31,8 @@ default:
 - **Mailboxes** — discover, plan, migrate Exchange Online mailbox *settings*.
 - **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
   simple upload, large files via resumable upload session; reapply direct grants.
-
-Teams is ported next, mirroring the Python original.
+- **Teams** — discover teams + channels, plan, enable Teams on the migrated M365
+  group, and recreate standard channels.
 
 ## Build & test
 
