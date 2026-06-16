@@ -64,6 +64,14 @@ admin-consented Graph *application* permissions for the workloads you run, e.g.
 Use **Test connections** first — it calls `/organization` on both tenants and
 reports the org names, so credential/permission problems surface before a run.
 
+### Reports & logs
+
+Every plan and migrate writes a timestamped CSV to
+`%LOCALAPPDATA%\m365-migrate\reports` (open it from the app with **Open reports
+folder**), and the app appends actions/errors to
+`%LOCALAPPDATA%\m365-migrate\logs\app-YYYYMMDD.log`. If something goes wrong,
+that log is the fastest way to diagnose it.
+
 ## Packaging (Windows)
 
 The app publishes to a single self-contained executable:

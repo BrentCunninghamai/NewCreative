@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Net.Http;
+using M365Migrate.App.Logging;
 using M365Migrate.Core.Auth;
 using M365Migrate.Core.Configuration;
 using M365Migrate.Core.Graph;
 using M365Migrate.Core.Models;
+using M365Migrate.Core.Reporting;
 using M365Migrate.Core.Workloads;
 
 namespace M365Migrate.App.ViewModels;
@@ -46,6 +49,31 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     public ObservableCollection<PlanRow> Rows { get; } = new();
+
+    /// <summary>Where plan/result CSV reports are written.</summary>
+    public string ReportsDirectory { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "m365-migrate", "reports");
+
+    /// <summary>Write the current grid rows to a timestamped CSV. Never throws.</summary>
+    private void WriteReport(string kind)
+    {
+        try
+        {
+            Directory.CreateDirectory(ReportsDirectory);
+            var safeWorkload = Workload.Replace(" ", "_").Replace("(", "").Replace(")", "");
+            var file = Path.Combine(ReportsDirectory, $"{kind}-{safeWorkload}-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+            var csv = CsvReport.ToCsv(
+                new[] { "Name", "Action", "Detail", "Reason" },
+                Rows.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Action, r.Detail, r.Reason }));
+            File.WriteAllText(file, csv);
+            AppLog.Write($"{kind} report written: {file} ({Rows.Count} rows)");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"failed to write {kind} report: {ex.Message}");
+        }
+    }
 
     private List<PlannedUser>? _plannedUsers;
     private List<PlannedGroup>? _plannedGroups;
@@ -224,9 +252,12 @@ public sealed class MainViewModel : ViewModelBase
                     });
                 Status = $"Planned {_plannedUsers.Count} users. Review, then Migrate.";
             }
+
+            WriteReport("plan");
         }
         catch (Exception ex)
         {
+            AppLog.Write($"plan {Workload} failed: {ex}");
             Status = "Error: " + ex.Message;
         }
         finally
@@ -295,11 +326,15 @@ public sealed class MainViewModel : ViewModelBase
                     Detail = string.Join("  ", r.Detail.Select(kv => $"{kv.Key}={kv.Value}")),
                     Reason = r.Reason ?? "",
                 });
+            WriteReport("results");
             Status = $"{mode} complete — {results.Count} items processed." +
-                     (Execute ? "" : " No changes were made; tick Execute to apply.");
+                     (Execute ? "" : " No changes were made; tick Execute to apply.") +
+                     $"  Report saved to {ReportsDirectory}.";
+            AppLog.Write($"{mode} {Workload}: {results.Count} items processed");
         }
         catch (Exception ex)
         {
+            AppLog.Write($"migrate {Workload} failed: {ex}");
             Status = "Error: " + ex.Message;
         }
         finally
