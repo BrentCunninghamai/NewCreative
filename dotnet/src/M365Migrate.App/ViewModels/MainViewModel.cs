@@ -48,6 +48,18 @@ public sealed class MainViewModel : ViewModelBase
         private set => SetField(ref _status, value);
     }
 
+    private CancellationTokenSource? _cts;
+
+    /// <summary>Request cancellation of the in-flight operation.</summary>
+    public void Cancel()
+    {
+        if (_cts is not null)
+        {
+            _cts.Cancel();
+            Status = "Canceling...";
+        }
+    }
+
     public ObservableCollection<PlanRow> Rows { get; } = new();
 
     /// <summary>Where plan/result CSV reports are written.</summary>
@@ -121,6 +133,8 @@ public sealed class MainViewModel : ViewModelBase
         if (error is not null) { Status = error; return; }
 
         IsBusy = true;
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
         try
         {
             var config = BuildConfig();
@@ -131,9 +145,13 @@ public sealed class MainViewModel : ViewModelBase
             var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
             var target = new GraphClient(targetHttp, TokenProviders.ForTenant(config.Target));
 
-            var sourceOrg = await ConnectionTester.CheckAsync(source);
-            var targetOrg = await ConnectionTester.CheckAsync(target);
+            var sourceOrg = await ConnectionTester.CheckAsync(source, ct);
+            var targetOrg = await ConnectionTester.CheckAsync(target, ct);
             Status = $"Connected OK.  Source: \"{sourceOrg}\"   Target: \"{targetOrg}\".  Ready to Discover & Plan.";
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Connection test canceled.";
         }
         catch (Exception ex)
         {
@@ -141,6 +159,8 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
+            _cts.Dispose();
+            _cts = null;
             IsBusy = false;
         }
     }
@@ -159,6 +179,8 @@ public sealed class MainViewModel : ViewModelBase
         _plannedMailboxes = null;
         _plannedFiles = null;
         _plannedTeams = null;
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
         try
         {
             var config = BuildConfig();
@@ -172,8 +194,8 @@ public sealed class MainViewModel : ViewModelBase
             if (Workload == "Groups")
             {
                 var workload = new GroupsWorkload(config);
-                var groups = await workload.DiscoverAsync(source);
-                var existing = await GroupsWorkload.GetTargetGroupIdsAsync(target);
+                var groups = await workload.DiscoverAsync(source, ct);
+                var existing = await GroupsWorkload.GetTargetGroupIdsAsync(target, ct);
                 _plannedGroups = workload.Plan(groups, existing);
                 foreach (var p in _plannedGroups)
                     Rows.Add(new PlanRow
@@ -188,8 +210,8 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Mailboxes")
             {
                 var workload = new MailboxesWorkload(config);
-                var mailboxes = await workload.DiscoverAsync(source);
-                var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target);
+                var mailboxes = await workload.DiscoverAsync(source, ct);
+                var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target, ct);
                 _plannedMailboxes = workload.Plan(mailboxes, existing);
                 foreach (var p in _plannedMailboxes)
                     Rows.Add(new PlanRow
@@ -205,7 +227,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var workload = new FilesWorkload(config);
                 (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope);
-                var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot);
+                var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
                 _plannedFiles = workload.Plan(driveItems);
                 foreach (var p in _plannedFiles)
                     Rows.Add(new PlanRow
@@ -220,8 +242,8 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Teams")
             {
                 var workload = new TeamsWorkload(config);
-                var teams = await workload.DiscoverAsync(source);
-                var existing = await GroupsWorkload.GetTargetGroupIdsAsync(target);
+                var teams = await workload.DiscoverAsync(source, ct);
+                var existing = await GroupsWorkload.GetTargetGroupIdsAsync(target, ct);
                 _plannedTeams = workload.Plan(teams, existing);
                 foreach (var p in _plannedTeams)
                 {
@@ -239,8 +261,8 @@ public sealed class MainViewModel : ViewModelBase
             else
             {
                 var workload = new UsersWorkload(config);
-                var users = await workload.DiscoverAsync(source);
-                var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target);
+                var users = await workload.DiscoverAsync(source, ct);
+                var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target, ct);
                 _plannedUsers = workload.Plan(users, existing);
                 foreach (var p in _plannedUsers)
                     Rows.Add(new PlanRow
@@ -255,6 +277,11 @@ public sealed class MainViewModel : ViewModelBase
 
             WriteReport("plan");
         }
+        catch (OperationCanceledException)
+        {
+            AppLog.Write($"plan {Workload} canceled");
+            Status = "Plan canceled.";
+        }
         catch (Exception ex)
         {
             AppLog.Write($"plan {Workload} failed: {ex}");
@@ -262,6 +289,8 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
+            _cts.Dispose();
+            _cts = null;
             IsBusy = false;
         }
     }
@@ -278,6 +307,8 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         IsBusy = true;
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
         try
         {
             var config = BuildConfig();
@@ -290,26 +321,26 @@ public sealed class MainViewModel : ViewModelBase
             List<WorkloadResult> results;
             if (Workload == "Groups" && _plannedGroups is not null)
             {
-                results = await new GroupsWorkload(config).SyncAsync(target, _plannedGroups, dryRun: !Execute);
+                results = await new GroupsWorkload(config).SyncAsync(target, _plannedGroups, dryRun: !Execute, ct: ct);
             }
             else if (Workload == "Mailboxes" && _plannedMailboxes is not null)
             {
-                results = await new MailboxesWorkload(config).MigrateAsync(target, _plannedMailboxes, dryRun: !Execute);
+                results = await new MailboxesWorkload(config).MigrateAsync(target, _plannedMailboxes, dryRun: !Execute, ct: ct);
             }
             else if (Workload == "Files (OneDrive)" && _plannedFiles is not null)
             {
                 using var sourceHttp = new HttpClient();
                 var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
                 results = await new FilesWorkload(config).MigrateDriveItemsAsync(
-                    source, target, _plannedFiles, _filesSourceRoot!, _filesTargetRoot!, dryRun: !Execute);
+                    source, target, _plannedFiles, _filesSourceRoot!, _filesTargetRoot!, dryRun: !Execute, ct: ct);
             }
             else if (Workload == "Teams" && _plannedTeams is not null)
             {
-                results = await new TeamsWorkload(config).MigrateAsync(target, _plannedTeams, dryRun: !Execute);
+                results = await new TeamsWorkload(config).MigrateAsync(target, _plannedTeams, dryRun: !Execute, ct: ct);
             }
             else if (_plannedUsers is not null)
             {
-                results = await new UsersWorkload(config).MigrateAsync(target, _plannedUsers, dryRun: !Execute);
+                results = await new UsersWorkload(config).MigrateAsync(target, _plannedUsers, dryRun: !Execute, ct: ct);
             }
             else
             {
@@ -332,6 +363,11 @@ public sealed class MainViewModel : ViewModelBase
                      $"  Report saved to {ReportsDirectory}.";
             AppLog.Write($"{mode} {Workload}: {results.Count} items processed");
         }
+        catch (OperationCanceledException)
+        {
+            AppLog.Write($"migrate {Workload} canceled");
+            Status = "Migration canceled. Items already processed were applied; re-run to continue.";
+        }
         catch (Exception ex)
         {
             AppLog.Write($"migrate {Workload} failed: {ex}");
@@ -339,6 +375,8 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
+            _cts.Dispose();
+            _cts = null;
             IsBusy = false;
         }
     }

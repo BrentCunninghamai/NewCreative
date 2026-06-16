@@ -51,6 +51,8 @@ public partial class MainWindow : Window
         await _vm.MigrateAsync();
     }
 
+    private void OnCancelClick(object sender, RoutedEventArgs e) => _vm.Cancel();
+
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)
     {
         try
