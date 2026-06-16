@@ -41,7 +41,11 @@
                     <ComboBoxItem Content="Users" />
                     <ComboBoxItem Content="Groups" />
                     <ComboBoxItem Content="Mailboxes" />
+                    <ComboBoxItem Content="Files (OneDrive)" />
                 </ComboBox>
+
+                <TextBlock Text="Files scope — source user UPN (OneDrive only)" Margin="0,8,0,0" />
+                <TextBox x:Name="ScopeBox" />
 
                 <CheckBox x:Name="RewriteUpnCheck" Content="Rewrite UPN domain to target" IsChecked="True" Margin="0,10,0,4" />
                 <CheckBox x:Name="SkipGuestsCheck" Content="Skip guest users" IsChecked="True" Margin="0,0,0,4" />

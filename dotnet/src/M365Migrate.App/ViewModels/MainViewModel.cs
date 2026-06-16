@@ -25,6 +25,8 @@ public sealed class MainViewModel : ViewModelBase
     public string TargetDomain { get; set; } = "";
 
     public string Workload { get; set; } = "Users";
+    // For the Files workload: the source user's UPN (their OneDrive).
+    public string Scope { get; set; } = "";
     public bool RewriteUpn { get; set; } = true;
     public bool SkipGuests { get; set; } = true;
     public bool Execute { get; set; }
@@ -48,6 +50,9 @@ public sealed class MainViewModel : ViewModelBase
     private List<PlannedUser>? _plannedUsers;
     private List<PlannedGroup>? _plannedGroups;
     private List<PlannedMailbox>? _plannedMailboxes;
+    private List<PlannedDriveItem>? _plannedFiles;
+    private string? _filesSourceRoot;
+    private string? _filesTargetRoot;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -91,6 +96,7 @@ public sealed class MainViewModel : ViewModelBase
         _plannedUsers = null;
         _plannedGroups = null;
         _plannedMailboxes = null;
+        _plannedFiles = null;
         try
         {
             var config = BuildConfig();
@@ -133,6 +139,22 @@ public sealed class MainViewModel : ViewModelBase
                     });
                 Status = $"Planned {_plannedMailboxes.Count} mailboxes. Review, then Migrate.";
             }
+            else if (Workload == "Files (OneDrive)")
+            {
+                var workload = new FilesWorkload(config);
+                (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope);
+                var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot);
+                _plannedFiles = workload.Plan(driveItems);
+                foreach (var p in _plannedFiles)
+                    Rows.Add(new PlanRow
+                    {
+                        Name = p.RelativePath,
+                        Action = p.Action,
+                        Detail = p.IsFolder ? "folder" : $"file ({p.Size} bytes)",
+                        Reason = p.Reason ?? "",
+                    });
+                Status = $"Planned {_plannedFiles.Count} drive items for {Scope}. Review, then Migrate.";
+            }
             else
             {
                 var workload = new UsersWorkload(config);
@@ -164,7 +186,7 @@ public sealed class MainViewModel : ViewModelBase
     public async Task MigrateAsync()
     {
         if (IsBusy) return;
-        if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null)
+        if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null && _plannedFiles is null)
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -188,6 +210,13 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Mailboxes" && _plannedMailboxes is not null)
             {
                 results = await new MailboxesWorkload(config).MigrateAsync(target, _plannedMailboxes, dryRun: !Execute);
+            }
+            else if (Workload == "Files (OneDrive)" && _plannedFiles is not null)
+            {
+                using var sourceHttp = new HttpClient();
+                var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                results = await new FilesWorkload(config).MigrateDriveItemsAsync(
+                    source, target, _plannedFiles, _filesSourceRoot!, _filesTargetRoot!, dryRun: !Execute);
             }
             else if (_plannedUsers is not null)
             {
