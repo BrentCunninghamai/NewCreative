@@ -28,9 +28,10 @@ default:
 - **Users** — discover, plan (conflict + guest filtering), migrate.
 - **Groups** — discover, plan, sync membership + ownership; dynamic groups
   recreated with their membership rule.
+- **Mailboxes** — discover, plan, migrate Exchange Online mailbox *settings*.
 
-Remaining workloads (mailbox settings, OneDrive/SharePoint files incl. large-file
-upload sessions, Teams) are ported next, mirroring the Python originals.
+Remaining workloads (OneDrive/SharePoint files incl. large-file upload sessions,
+Teams) are ported next, mirroring the Python originals.
 
 ## Build & test
 

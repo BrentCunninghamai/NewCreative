@@ -47,6 +47,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private List<PlannedUser>? _plannedUsers;
     private List<PlannedGroup>? _plannedGroups;
+    private List<PlannedMailbox>? _plannedMailboxes;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -89,6 +90,7 @@ public sealed class MainViewModel : ViewModelBase
         Rows.Clear();
         _plannedUsers = null;
         _plannedGroups = null;
+        _plannedMailboxes = null;
         try
         {
             var config = BuildConfig();
@@ -114,6 +116,22 @@ public sealed class MainViewModel : ViewModelBase
                         Reason = p.Reason ?? "",
                     });
                 Status = $"Planned {_plannedGroups.Count} groups. Review, then Migrate.";
+            }
+            else if (Workload == "Mailboxes")
+            {
+                var workload = new MailboxesWorkload(config);
+                var mailboxes = await workload.DiscoverAsync(source);
+                var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target);
+                _plannedMailboxes = workload.Plan(mailboxes, existing);
+                foreach (var p in _plannedMailboxes)
+                    Rows.Add(new PlanRow
+                    {
+                        Name = p.TargetUpn,
+                        Action = p.Action,
+                        Detail = $"settings:{p.Settings.Count}",
+                        Reason = p.Reason ?? "",
+                    });
+                Status = $"Planned {_plannedMailboxes.Count} mailboxes. Review, then Migrate.";
             }
             else
             {
@@ -146,7 +164,7 @@ public sealed class MainViewModel : ViewModelBase
     public async Task MigrateAsync()
     {
         if (IsBusy) return;
-        if (_plannedUsers is null && _plannedGroups is null)
+        if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null)
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -166,6 +184,10 @@ public sealed class MainViewModel : ViewModelBase
             if (Workload == "Groups" && _plannedGroups is not null)
             {
                 results = await new GroupsWorkload(config).SyncAsync(target, _plannedGroups, dryRun: !Execute);
+            }
+            else if (Workload == "Mailboxes" && _plannedMailboxes is not null)
+            {
+                results = await new MailboxesWorkload(config).MigrateAsync(target, _plannedMailboxes, dryRun: !Execute);
             }
             else if (_plannedUsers is not null)
             {
