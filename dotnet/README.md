@@ -52,8 +52,9 @@ CI (`.github/workflows/dotnet.yml`) runs this on every push/PR.
 `M365Migrate.App` is a single-window WPF UI: enter both tenants' app-registration
 details (tenant id, client id, secret, primary domain), **Test connections** to
 confirm auth + permissions, pick a workload, then **Discover & Plan** and
-**Migrate** (dry run unless *Execute* is ticked). Results stream into a grid. All
-workloads (Users, Groups, Mailboxes, Files, Teams) are wired up.
+**Migrate** (dry run unless *Execute* is ticked). Results stream into a grid. A
+**Cancel** button stops a long or mistaken run mid-flight. All workloads (Users,
+Groups, Mailboxes, Files, Teams) are wired up.
 
 ### Prerequisites
 
