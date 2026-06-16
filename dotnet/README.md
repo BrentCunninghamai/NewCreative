@@ -60,8 +60,11 @@ dotnet publish dotnet/src/M365Migrate.App -c Release -r win-x64 \
 
 This produces a downloadable `M365Migrate.exe` that runs on a Windows machine with
 no prerequisites. CI (`.github/workflows/dotnet.yml`) builds it on a
-`windows-latest` runner and uploads it as the **`m365-migrate-windows`** artifact
-on every push/PR.
+`windows-latest` runner and:
+
+- uploads it as the **`m365-migrate-windows`** artifact on every push/PR, and
+- on every push to `main`, attaches it to a rolling **`latest`** GitHub Release —
+  so the newest build is always at `…/releases/latest` for a one-click download.
 
 ## Design notes
 
