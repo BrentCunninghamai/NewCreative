@@ -61,18 +61,21 @@ SKUs that are available in the target tenant.
 ## Groups workload flow
 
 ```
-discover  GET /groups (source, $expand=members) -> SourceGroup[] (classified by kind)
-plan      match target by mailNickname,          -> PlannedGroup[] (create|exists|skip)
-          classify kind, rewrite member UPNs
-sync      POST /groups for "create",             -> results (dry-run by default)
-          POST members/$ref for resolved members
+discover  GET /groups (source, $expand=members,owners) -> SourceGroup[] (by kind)
+plan      match target by mailNickname,                 -> PlannedGroup[] (create|exists|skip)
+          classify kind, rewrite member + owner UPNs
+sync      POST /groups for "create",                    -> results (dry-run by default)
+          POST members/$ref + owners/$ref for resolved users
 ```
 
 Only **security** and **Microsoft 365** (Unified) groups are provisioned via
 Graph; mail-enabled security groups and distribution lists are marked ``skip``
-(they need Exchange Online, a later workload). Membership is reconciled through
-the same source→target UPN rewrite as users, so a member is added only once its
-target account exists; members with no target account are reported as unresolved.
+(they need Exchange Online, a later workload). Both **membership** and
+**ownership** are reconciled through the same source→target UPN rewrite as users,
+so a member/owner is added only once its target account exists; users with no
+target account are reported as unresolved. Reconciling owners is also a
+prerequisite for the teams workload — an M365 group must have an owner before it
+can be Teams-enabled.
 
 ## Mailbox workload flow
 
@@ -143,9 +146,10 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 
 - [x] Users / Identities: discover, plan (with conflict detection), migrate.
 - [x] Users: license assignment + manager links (`enrich`).
-- [x] Groups: provision security/M365 groups + reconcile membership (`groups sync`).
+- [x] Groups: provision security/M365 groups + reconcile membership & ownership
+      (`groups sync`).
 - [ ] Groups: mail-enabled security groups + distribution lists (via Exchange).
-- [ ] Groups: owners, dynamic membership rules, nested groups.
+- [ ] Groups: dynamic membership rules, nested groups.
 - [x] Exchange Online mailboxes: settings migration (`mailbox migrate`).
 - [ ] Exchange Online mailboxes: content move (mail/calendar/contacts) via native
       cross-tenant mailbox migration.
@@ -166,8 +170,9 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
 - Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
-  security groups and distribution lists are skipped, and group owners, dynamic
-  membership rules, and nested (group-in-group) members are not migrated yet.
+  security groups and distribution lists are skipped, and dynamic membership rules
+  and nested (group-in-group) members are not migrated yet. Members and owners are
+  reconciled (users only — non-user owners such as service principals are ignored).
 - Mailbox: only settings are migrated, not mail/calendar/contact content (which
   needs a native cross-tenant mailbox move). Target mailboxes must already exist
   to receive settings.
@@ -175,10 +180,12 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
   skipped (no upload sessions yet); version history and most item metadata are not
   preserved, and only direct user grants that resolve in the target are reapplied.
 - Teams: a team's backing M365 group must already exist in the target (run
-  `groups sync` first) so it can be Teams-enabled. Only standard channels are
+  `groups sync` first) so it can be Teams-enabled. Enabling Teams requires the
+  group to have an owner, which `groups sync` now reconciles — but only owners
+  with an existing target account are added, so a team whose owners haven't been
+  migrated as users will still fail to teamify. Only standard channels are
   recreated — private/shared channels, channel membership, tabs, apps, and team
-  settings are not migrated yet. Enabling Teams on a group requires the group to
-  have an owner; ownerless groups will fail to teamify until owners are migrated.
+  settings are not migrated yet.
 - New users get a random password and must reset on first sign-in; there is no
   password/identity federation handoff.
 - No incremental/delta sync yet — `plan` is a full comparison each run.

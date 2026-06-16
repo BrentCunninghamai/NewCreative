@@ -2,16 +2,18 @@
 
 Like the users workload, this is staged so a human can review before any write:
 
-    discover  -> read groups from the source tenant (with user members)
+    discover  -> read groups from the source tenant (with user members + owners)
     plan      -> match each source group to the target by mailNickname, classify
-                 it, and resolve members through the user UPN mapping (read-only)
-    sync      -> provision missing groups and reconcile their membership
+                 it, and resolve members + owners through the user UPN mapping
+    sync      -> provision missing groups and reconcile membership + ownership
 
 Only **security** and **Microsoft 365** groups can be provisioned through Graph.
 Mail-enabled security groups and distribution lists require Exchange Online and
-are surfaced as ``skip`` for a later workload. Membership is resolved through the
-same source->target UPN rewrite used by the users workload, so a member is only
-added once the corresponding target user exists.
+are surfaced as ``skip`` for a later workload. Membership and ownership are
+resolved through the same source->target UPN rewrite used by the users workload,
+so a member/owner is only added once the corresponding target user exists.
+Reconciling owners matters beyond access control: an M365 group must have an owner
+before it can be Teams-enabled by the teams workload.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ CREATABLE_KINDS = {"security", "microsoft365"}
 
 
 def discover_groups(client: GraphClient) -> list[SourceGroup]:
-    """Read all groups from the source tenant, including their user members."""
+    """Read all groups from the source tenant, including their members + owners."""
     select = ",".join(GROUP_SELECT_FIELDS)
     raw = client.get_all(
         "/groups", params={"$select": select, "$expand": GROUP_EXPAND, "$top": 999}
@@ -62,6 +64,14 @@ def get_group_member_ids(client: GraphClient, group_id: str) -> set[str]:
     return {item["id"] for item in raw if item.get("id")}
 
 
+def get_group_owner_ids(client: GraphClient, group_id: str) -> set[str]:
+    """Return the set of directory-object ids already owners of a target group."""
+    raw = client.get_all(
+        f"/groups/{group_id}/owners", params={"$select": "id", "$top": 999}
+    )
+    return {item["id"] for item in raw if item.get("id")}
+
+
 def plan_groups(
     groups: list[SourceGroup],
     config: Config,
@@ -72,7 +82,8 @@ def plan_groups(
     ``existing_target_groups`` maps lowercased target mailNickname -> group id and
     lets the planner decide whether a group must be created (``create``) or
     already exists in the target (``exists``). Group kinds that cannot be
-    provisioned through Graph are marked ``skip``.
+    provisioned through Graph are marked ``skip``. Member and owner UPNs are
+    rewritten to the target domain so the plan reflects what would be reconciled.
     """
     existing = existing_target_groups or {}
     planned: list[PlannedGroup] = []
@@ -99,6 +110,7 @@ def plan_groups(
                 reason=reason,
                 description=group.description,
                 target_member_upns=[_rewrite(m, config) for m in group.member_upns],
+                target_owner_upns=[_rewrite(o, config) for o in group.owner_upns],
             )
         )
     return planned
@@ -116,12 +128,12 @@ def sync_groups(
     *,
     dry_run: bool = True,
 ) -> list[dict]:
-    """Provision missing groups and reconcile their membership in the target.
+    """Provision missing groups and reconcile membership + ownership in the target.
 
     For each ``create``/``exists`` plan entry this resolves (or creates) the
-    target group, then adds the source members that resolve to existing target
-    users and are not already members. With ``dry_run=True`` (default) nothing is
-    written; planned actions are reported with a ``would-`` prefix.
+    target group, then adds the source members and owners that resolve to existing
+    target users and are not already present. With ``dry_run=True`` (default)
+    nothing is written; planned actions are reported with a ``would-`` prefix.
     """
     target_groups = get_target_group_ids(client)
     target_users = get_target_user_ids(client)
@@ -188,6 +200,40 @@ def sync_groups(
             record["members"] = f"added:{added}"
             if errors:
                 record["members_errors"] = errors
+
+        # --- reconcile owners (a group needs an owner before it can be teamified) ---
+        if p.target_owner_upns:
+            existing_owners = get_group_owner_ids(client, group_id) if group_id else set()
+            resolved_owners, unresolved_owners = [], 0
+            for upn in p.target_owner_upns:
+                uid = target_users.get(upn.lower())
+                if uid:
+                    resolved_owners.append(uid)
+                else:
+                    unresolved_owners += 1
+
+            to_add_owners = [uid for uid in resolved_owners if uid not in existing_owners]
+            if unresolved_owners:
+                record["owners_unresolved"] = unresolved_owners
+
+            if not to_add_owners:
+                record["owners"] = "none"
+            elif dry_run or group_id is None:
+                record["owners"] = f"would-add:{len(to_add_owners)}"
+            else:
+                added, errors = 0, 0
+                for uid in to_add_owners:
+                    try:
+                        client.post(
+                            f"/groups/{group_id}/owners/$ref",
+                            json={"@odata.id": _directory_object_ref(client, uid)},
+                        )
+                        added += 1
+                    except GraphError:
+                        errors += 1
+                record["owners"] = f"added:{added}"
+                if errors:
+                    record["owners_errors"] = errors
 
         record["status"] = "ok"
         results.append(record)
