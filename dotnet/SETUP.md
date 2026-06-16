@@ -51,8 +51,9 @@ Download **`M365Migrate.exe`** from the repository's
 executable — no .NET install required.
 
 > **Windows SmartScreen:** the download is **not code-signed**, so Windows may
-> warn "Windows protected your PC". Click **More info → Run anyway**. (If you'd
-> like, I can set up code signing later to remove this prompt.)
+> warn "Windows protected your PC". Click **More info → Run anyway**. To remove
+> this prompt permanently, set up signing per [SIGNING.md](SIGNING.md) — the CI
+> pipeline is already wired for Azure Trusted Signing and just needs credentials.
 
 ---
 
