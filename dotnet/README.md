@@ -4,6 +4,9 @@ The packaged **Windows desktop application** for Microsoft 365 tenant-to-tenant
 migration. This is the product direction: a ShareGate-style native app built on
 .NET 8 / WPF, with a reusable cross-platform engine underneath.
 
+> **New here? See [SETUP.md](SETUP.md)** for step-by-step Azure AD app
+> registration, permissions/consent, downloading the exe, and running a migration.
+
 > The original Python implementation (repo root, `src/m365_migrate/`) is the
 > proven reference that this engine is ported from. It remains in the repo while
 > the port completes, then will be retired.
