@@ -103,21 +103,23 @@ either `/users/{upn}/drive` (OneDrive) or `/sites/{id}/drive` (SharePoint).
 
 ```
 discover  walk source drive (BFS) + $expand=permissions -> DriveItem[] (folders first)
-plan      classify copy|skip, rewrite grantee UPNs       -> PlannedDriveItem[]
-migrate   POST folders, PUT file content (download->upload), -> results (dry-run default)
+plan      mark folders/files copy, rewrite grantee UPNs  -> PlannedDriveItem[]
+migrate   POST folders, upload file content (download->upload), -> results (dry-run default)
           re-invite resolvable direct user grants
 ```
 
 Breadth-first discovery guarantees a parent folder precedes its children, so the
 copy can create folders before populating them. Reads come from the source
-client and writes go to the target client (different tenants).
+client and writes go to the target client (different tenants). Files at or below
+`SIMPLE_UPLOAD_LIMIT` upload in a single `PUT .../content`; larger files use a
+resumable **upload session** (`createUploadSession` + chunked PUTs of 3.2 MiB),
+so large files are migrated, not skipped. Each file is buffered in memory between
+download and upload.
 
-> **Scale & fidelity caveats.** Content is copied via Graph simple upload
-> (`PUT .../content`); files above `SIMPLE_UPLOAD_LIMIT` are skipped — large-file
-> *upload sessions* and the high-fidelity **SharePoint Migration API** (Azure blob
-> + manifests, version history, metadata) are future work. Only **direct user**
-> grants are reapplied, and only when the grantee resolves to a target account;
-> sharing links and group/external grants are skipped.
+> **Fidelity caveats.** The high-fidelity **SharePoint Migration API** (Azure
+> blob + manifests, version history, full item metadata) is still future work.
+> Only **direct user** grants are reapplied, and only when the grantee resolves to
+> a target account; sharing links and group/external grants are skipped.
 
 ## Teams workload flow
 
@@ -153,10 +155,10 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 - [x] Exchange Online mailboxes: settings migration (`mailbox migrate`).
 - [ ] Exchange Online mailboxes: content move (mail/calendar/contacts) via native
       cross-tenant mailbox migration.
-- [x] OneDrive / SharePoint: copy files/folders + reapply direct user grants
-      (`files migrate`).
-- [ ] OneDrive / SharePoint: large-file upload sessions + SharePoint Migration API
-      (version history, full metadata); sharing links and group/external grants.
+- [x] OneDrive / SharePoint: copy files/folders (simple + chunked upload sessions
+      for large files) + reapply direct user grants (`files migrate`).
+- [ ] OneDrive / SharePoint: SharePoint Migration API (version history, full
+      metadata); sharing links and group/external grants.
 - [x] Teams: enable Teams on migrated M365 groups + recreate standard channels
       (`teams migrate`). Membership rides on the group; channel files on SharePoint.
 - [ ] Teams: private/shared channels, channel membership, tabs, apps, and settings.
@@ -176,9 +178,10 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 - Mailbox: only settings are migrated, not mail/calendar/contact content (which
   needs a native cross-tenant mailbox move). Target mailboxes must already exist
   to receive settings.
-- Files: copied via Graph simple upload, so files over `SIMPLE_UPLOAD_LIMIT` are
-  skipped (no upload sessions yet); version history and most item metadata are not
-  preserved, and only direct user grants that resolve in the target are reapplied.
+- Files: small files use simple upload and large files a chunked upload session,
+  but each file is buffered in memory (no streaming), and version history and most
+  item metadata are not preserved; only direct user grants that resolve in the
+  target are reapplied.
 - Teams: a team's backing M365 group must already exist in the target (run
   `groups sync` first) so it can be Teams-enabled. Enabling Teams requires the
   group to have an owner, which `groups sync` now reconciles — but only owners
