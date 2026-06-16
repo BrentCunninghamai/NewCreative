@@ -8,12 +8,13 @@ with the other workloads the flow is staged:
     plan      -> classify each item (copy | skip); rewrite grantee UPNs (read-only)
     migrate   -> recreate folders, upload file content, reapply resolvable grants
 
-**Scope.** Content is copied via Graph download → simple upload, which is well
-suited to typical files. Files larger than the simple-upload limit are surfaced
-as ``skip`` (large-file *upload sessions* and the high-fidelity SharePoint
-Migration API are tracked on the roadmap). Only **direct user** permission grants
-are reapplied, and only when the grantee resolves to a target account; sharing
-links and group/external grants are skipped.
+**Scope.** Content is copied by download → upload: small files in a single
+``PUT .../content``, and files above ``SIMPLE_UPLOAD_LIMIT`` via a resumable
+*upload session* (chunked), so large files are migrated rather than skipped. Each
+file is buffered in memory between download and upload. Only **direct user**
+permission grants are reapplied, and only when the grantee resolves to a target
+account; sharing links and group/external grants are skipped. The high-fidelity
+SharePoint Migration API (version history, full metadata) remains on the roadmap.
 """
 
 from __future__ import annotations
@@ -81,27 +82,18 @@ def discover_drive_items(client: GraphClient, drive_root: str) -> list[DriveItem
 def plan_drive_items(
     items: list[DriveItem],
     config: Config,
-    *,
-    upload_limit: int = SIMPLE_UPLOAD_LIMIT,
 ) -> list[PlannedDriveItem]:
     """Build a copy plan without writing anything.
 
-    Folders are always ``copy``. Files are ``copy`` unless they exceed
-    ``upload_limit`` (then ``skip``). Grantee UPNs are rewritten to the target
-    domain so the plan reflects what would be reapplied.
+    Folders and files are all ``copy``; the migrate phase picks a simple upload or
+    a chunked upload session based on each file's size. Grantee UPNs are rewritten
+    to the target domain so the plan reflects what would be reapplied.
     """
     planned: list[PlannedDriveItem] = []
     for item in items:
         target_grants = [
             DriveGrant(upn=_rewrite(g.upn, config), roles=g.roles) for g in item.grants
         ]
-        if item.is_folder:
-            action, reason = "copy", None
-        elif item.size > upload_limit:
-            action, reason = "skip", "exceeds simple-upload size limit"
-        else:
-            action, reason = "copy", None
-
         planned.append(
             PlannedDriveItem(
                 source_id=item.id,
@@ -109,8 +101,8 @@ def plan_drive_items(
                 relative_path=item.relative_path,
                 is_folder=item.is_folder,
                 size=item.size,
-                action=action,
-                reason=reason,
+                action="copy",
+                reason=None,
                 target_grants=target_grants,
             )
         )
@@ -171,12 +163,21 @@ def migrate_drive_items(
                     )
                     record["status"] = "folder-created"
             else:
+                large = p.size > SIMPLE_UPLOAD_LIMIT
                 if dry_run:
-                    record["status"] = "would-upload"
+                    record["status"] = "would-upload-session" if large else "would-upload"
                 else:
                     data = source.get_content(f"{source_root}/items/{p.source_id}/content")
-                    target.put_content(f"{target_root}/root:/{p.relative_path}:/content", data)
-                    record["status"] = "uploaded"
+                    if large:
+                        target.upload_large_file(
+                            f"{target_root}/root:/{p.relative_path}:/createUploadSession", data
+                        )
+                        record["status"] = "uploaded-session"
+                    else:
+                        target.put_content(
+                            f"{target_root}/root:/{p.relative_path}:/content", data
+                        )
+                        record["status"] = "uploaded"
         except GraphError as exc:
             record["status"] = "error"
             record["reason"] = f"{exc.status_code}"

@@ -79,17 +79,16 @@ def test_discover_walks_folders_breadth_first(static_token):
     assert names == ["Reports", "top.txt", "Reports/inner.txt"]
 
 
-def test_plan_skips_oversized_files(config):
+def test_plan_marks_all_items_copy(config):
+    # Oversized files are no longer skipped — the migrate phase uses an upload
+    # session for them instead.
     items = [
         DriveItem(id="d1", name="Reports", is_folder=True),
         DriveItem(id="f1", name="ok.txt", size=100),
         DriveItem(id="f2", name="big.bin", size=fw.SIMPLE_UPLOAD_LIMIT + 1),
     ]
     planned = fw.plan_drive_items(items, config)
-    by_id = {p.source_id: p for p in planned}
-    assert by_id["d1"].action == "copy"
-    assert by_id["f1"].action == "copy"
-    assert by_id["f2"].action == "skip"
+    assert all(p.action == "copy" for p in planned)
 
 
 def test_plan_rewrites_grant_upns(config):
@@ -163,6 +162,59 @@ def test_migrate_execute_creates_folder_uploads_and_grants(config, static_token)
     invite_body = invite.calls.last.request.content.decode()
     assert "bob@fabrikam.onmicrosoft.com" in invite_body
     assert '"write"' in invite_body
+
+
+@respx.mock
+def test_migrate_dry_run_flags_large_file_as_session(config, static_token):
+    respx.get(f"{BASE}/users").mock(return_value=httpx.Response(200, json={"value": []}))
+    planned = [
+        PlannedDriveItem(
+            source_id="big",
+            name="big.bin",
+            relative_path="big.bin",
+            is_folder=False,
+            size=fw.SIMPLE_UPLOAD_LIMIT + 1,
+            action="copy",
+        )
+    ]
+    client = GraphClient(static_token)
+    results = fw.migrate_drive_items(client, client, planned, SRC, TGT, config, dry_run=True)
+    assert results[0]["status"] == "would-upload-session"
+
+
+@respx.mock
+def test_migrate_execute_uploads_large_file_via_session(config, static_token):
+    respx.get(f"{BASE}/users").mock(return_value=httpx.Response(200, json={"value": []}))
+    download = respx.get(f"{BASE}{SRC}/items/big/content").mock(
+        return_value=httpx.Response(200, content=b"large file payload")
+    )
+    create_session = respx.post(f"{BASE}{TGT}/root:/big.bin:/createUploadSession").mock(
+        return_value=httpx.Response(200, json={"uploadUrl": "https://upload.example/sess1"})
+    )
+    upload = respx.put("https://upload.example/sess1").mock(
+        return_value=httpx.Response(201, json={"id": "tbig"})
+    )
+    planned = [
+        PlannedDriveItem(
+            source_id="big",
+            name="big.bin",
+            relative_path="big.bin",
+            is_folder=False,
+            size=fw.SIMPLE_UPLOAD_LIMIT + 1,
+            action="copy",
+        )
+    ]
+    client = GraphClient(static_token)
+    results = fw.migrate_drive_items(client, client, planned, SRC, TGT, config, dry_run=False)
+
+    assert download.called and create_session.called and upload.called
+    assert results[0]["status"] == "uploaded-session"
+    # The chunk carries the downloaded bytes and a Content-Range covering them.
+    req = upload.calls.last.request
+    assert req.content == b"large file payload"
+    assert req.headers["Content-Range"] == "bytes 0-17/18"
+    # The pre-authenticated upload URL must not carry the bearer token.
+    assert "Authorization" not in req.headers
 
 
 @respx.mock

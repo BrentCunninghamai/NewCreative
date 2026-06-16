@@ -22,6 +22,10 @@ GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 # Retry these status codes; everything else surfaces immediately.
 _RETRYABLE = {429, 500, 502, 503, 504}
 
+# Upload-session chunks must be a multiple of 320 KiB (except the final chunk).
+UPLOAD_FRAGMENT = 320 * 1024
+DEFAULT_UPLOAD_CHUNK = 10 * UPLOAD_FRAGMENT  # 3.2 MiB per PUT
+
 
 class GraphError(Exception):
     """Raised for non-retryable / exhausted Graph API errors."""
@@ -151,6 +155,57 @@ class GraphClient:
         )
         if response.content:
             return response.json()
+        return {}
+
+    def upload_large_file(
+        self,
+        create_session_url: str,
+        data: bytes,
+        *,
+        conflict_behavior: str = "replace",
+        chunk_size: int = DEFAULT_UPLOAD_CHUNK,
+    ) -> dict[str, Any]:
+        """Upload ``data`` via a resumable upload session, in chunks.
+
+        Used for files too large for a single ``PUT .../content``. This creates an
+        upload session against ``create_session_url`` (a Graph driveItem path) and
+        PUTs the bytes in ``chunk_size`` fragments. The returned upload URL is
+        pre-authenticated, so the bearer token is deliberately *not* sent with the
+        chunk PUTs. Returns the final driveItem JSON.
+        """
+        session = self.post(
+            create_session_url,
+            json={"item": {"@microsoft.graph.conflictBehavior": conflict_behavior}},
+        )
+        upload_url = session.get("uploadUrl")
+        if not upload_url:
+            raise GraphError(500, "createUploadSession returned no uploadUrl")
+
+        total = len(data)
+        start = 0
+        last: httpx.Response | None = None
+        while start < total:
+            end = min(start + chunk_size, total)
+            chunk = data[start:end]
+            # No Authorization header: the upload URL is already pre-authenticated.
+            last = self._client.put(
+                upload_url,
+                content=chunk,
+                headers={
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {start}-{end - 1}/{total}",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+            if last.status_code >= 400:
+                raise GraphError(last.status_code, last.text)
+            start = end
+
+        if last is not None and last.content:
+            try:
+                return last.json()
+            except ValueError:
+                return {}
         return {}
 
     def close(self) -> None:
