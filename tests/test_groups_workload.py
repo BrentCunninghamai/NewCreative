@@ -109,6 +109,37 @@ def test_microsoft365_group_body():
     assert body["description"] == "Marketing team"
 
 
+def test_from_graph_parses_dynamic_membership():
+    g = SourceGroup.from_graph(
+        {
+            "id": "g1",
+            "mailNickname": "sales",
+            "groupTypes": ["Unified", "DynamicMembership"],
+            "mailEnabled": True,
+            "membershipRule": 'user.department -eq "Sales"',
+            "membershipRuleProcessingState": "On",
+        }
+    )
+    assert g.is_dynamic
+    assert g.membership_rule == 'user.department -eq "Sales"'
+
+
+def test_dynamic_group_body_includes_rule():
+    p = PlannedGroup(
+        source_id="g1",
+        mail_nickname="sales",
+        display_name="Sales",
+        kind="microsoft365",
+        action="create",
+        is_dynamic=True,
+        membership_rule='user.department -eq "Sales"',
+    )
+    body = p.to_graph_body()
+    assert body["groupTypes"] == ["Unified", "DynamicMembership"]
+    assert body["membershipRule"] == 'user.department -eq "Sales"'
+    assert body["membershipRuleProcessingState"] == "On"
+
+
 def test_security_group_body_drops_null_description():
     p = PlannedGroup(
         source_id="g2",
@@ -264,6 +295,42 @@ def test_sync_execute_adds_owner(config, static_token):
     assert results[0]["owners"] == "added:1"
     body = add_owner.calls.last.request.content.decode()
     assert "/directoryObjects/tj" in body
+
+
+@respx.mock
+def test_sync_dynamic_group_creates_with_rule_and_skips_members(config, static_token):
+    respx.get(f"{BASE}/groups").mock(return_value=httpx.Response(200, json={"value": []}))
+    respx.get(f"{BASE}/users").mock(
+        return_value=httpx.Response(
+            200,
+            json={"value": [{"id": "tj", "userPrincipalName": "jane@fabrikam.onmicrosoft.com"}]},
+        )
+    )
+    create = respx.post(f"{BASE}/groups").mock(
+        return_value=httpx.Response(201, json={"id": "dyn", "mailNickname": "sales"})
+    )
+    add_member = respx.post(f"{BASE}/groups/dyn/members/$ref").mock(return_value=httpx.Response(204))
+    planned = [
+        PlannedGroup(
+            source_id="g1",
+            mail_nickname="sales",
+            display_name="Sales",
+            kind="microsoft365",
+            action="create",
+            is_dynamic=True,
+            membership_rule='user.department -eq "Sales"',
+            # Even if assigned members are present, a dynamic group must ignore them.
+            target_member_upns=["jane@fabrikam.onmicrosoft.com"],
+        )
+    ]
+    client = GraphClient(static_token)
+    results = gw.sync_groups(client, planned, config, dry_run=False)
+
+    assert create.called
+    assert not add_member.called  # membership is rule-driven, not assigned
+    assert results[0]["members"] == "dynamic-rule"
+    body = create.calls.last.request.content.decode()
+    assert "DynamicMembership" in body and "membershipRule" in body
 
 
 @respx.mock

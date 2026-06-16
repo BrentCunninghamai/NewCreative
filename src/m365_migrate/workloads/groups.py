@@ -84,6 +84,7 @@ def plan_groups(
     already exists in the target (``exists``). Group kinds that cannot be
     provisioned through Graph are marked ``skip``. Member and owner UPNs are
     rewritten to the target domain so the plan reflects what would be reconciled.
+    Dynamic groups carry their membership rule instead of assigned members.
     """
     existing = existing_target_groups or {}
     planned: list[PlannedGroup] = []
@@ -111,6 +112,8 @@ def plan_groups(
                 description=group.description,
                 target_member_upns=[_rewrite(m, config) for m in group.member_upns],
                 target_owner_upns=[_rewrite(o, config) for o in group.owner_upns],
+                is_dynamic=group.is_dynamic,
+                membership_rule=group.membership_rule,
             )
         )
     return planned
@@ -132,8 +135,10 @@ def sync_groups(
 
     For each ``create``/``exists`` plan entry this resolves (or creates) the
     target group, then adds the source members and owners that resolve to existing
-    target users and are not already present. With ``dry_run=True`` (default)
-    nothing is written; planned actions are reported with a ``would-`` prefix.
+    target users and are not already present. Dynamic groups are created with their
+    membership rule and skip manual member assignment. With ``dry_run=True``
+    (default) nothing is written; planned actions are reported with a ``would-``
+    prefix.
     """
     target_groups = get_target_group_ids(client)
     target_users = get_target_user_ids(client)
@@ -165,41 +170,46 @@ def sync_groups(
                     continue
         else:
             record["group"] = "exists"
-            if group_id:
+            if group_id and not p.is_dynamic:
                 existing_members = get_group_member_ids(client, group_id)
 
         # --- reconcile membership ---
-        resolved, unresolved = [], 0
-        for upn in p.target_member_upns:
-            uid = target_users.get(upn.lower())
-            if uid:
-                resolved.append(uid)
-            else:
-                unresolved += 1
-
-        to_add = [uid for uid in resolved if uid not in existing_members]
-        if unresolved:
-            record["members_unresolved"] = unresolved
-
-        if not to_add:
-            record["members"] = "none"
-        elif dry_run or group_id is None:
-            # group_id is None only in a dry run create (group not yet provisioned).
-            record["members"] = f"would-add:{len(to_add)}"
+        # Dynamic groups are populated by their membership rule (migrated in the
+        # create body), so manual member assignment is skipped.
+        if p.is_dynamic:
+            record["members"] = "dynamic-rule"
         else:
-            added, errors = 0, 0
-            for uid in to_add:
-                try:
-                    client.post(
-                        f"/groups/{group_id}/members/$ref",
-                        json={"@odata.id": _directory_object_ref(client, uid)},
-                    )
-                    added += 1
-                except GraphError:
-                    errors += 1
-            record["members"] = f"added:{added}"
-            if errors:
-                record["members_errors"] = errors
+            resolved, unresolved = [], 0
+            for upn in p.target_member_upns:
+                uid = target_users.get(upn.lower())
+                if uid:
+                    resolved.append(uid)
+                else:
+                    unresolved += 1
+
+            to_add = [uid for uid in resolved if uid not in existing_members]
+            if unresolved:
+                record["members_unresolved"] = unresolved
+
+            if not to_add:
+                record["members"] = "none"
+            elif dry_run or group_id is None:
+                # group_id is None only in a dry run create (group not yet provisioned).
+                record["members"] = f"would-add:{len(to_add)}"
+            else:
+                added, errors = 0, 0
+                for uid in to_add:
+                    try:
+                        client.post(
+                            f"/groups/{group_id}/members/$ref",
+                            json={"@odata.id": _directory_object_ref(client, uid)},
+                        )
+                        added += 1
+                    except GraphError:
+                        errors += 1
+                record["members"] = f"added:{added}"
+                if errors:
+                    record["members_errors"] = errors
 
         # --- reconcile owners (a group needs an owner before it can be teamified) ---
         if p.target_owner_upns:

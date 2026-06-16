@@ -151,7 +151,8 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 - [x] Groups: provision security/M365 groups + reconcile membership & ownership
       (`groups sync`).
 - [ ] Groups: mail-enabled security groups + distribution lists (via Exchange).
-- [ ] Groups: dynamic membership rules, nested groups.
+- [x] Groups: dynamic membership groups (recreate with their membership rule).
+- [ ] Groups: nested groups (group-in-group members).
 - [x] Exchange Online mailboxes: settings migration (`mailbox migrate`).
 - [ ] Exchange Online mailboxes: content move (mail/calendar/contacts) via native
       cross-tenant mailbox migration.
@@ -172,9 +173,10 @@ doubles as the team id. Run `groups sync` first so the backing group exists.
 - License assignment requires the matching SKU to exist in the target tenant;
   unavailable SKUs are skipped (not purchased automatically).
 - Groups: only security and Microsoft 365 groups are provisioned. Mail-enabled
-  security groups and distribution lists are skipped, and dynamic membership rules
-  and nested (group-in-group) members are not migrated yet. Members and owners are
-  reconciled (users only — non-user owners such as service principals are ignored).
+  security groups and distribution lists are skipped, and nested (group-in-group)
+  members are not migrated yet. Members and owners are reconciled (users only —
+  non-user owners such as service principals are ignored). Dynamic groups are
+  recreated with their membership rule and skip manual member assignment.
 - Mailbox: only settings are migrated, not mail/calendar/contact content (which
   needs a native cross-tenant mailbox move). Target mailboxes must already exist
   to receive settings.
