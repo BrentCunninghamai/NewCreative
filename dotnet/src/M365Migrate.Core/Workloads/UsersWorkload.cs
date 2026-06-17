@@ -70,10 +70,15 @@ public sealed class UsersWorkload
             string action;
             string? reason;
 
-            if (_config.Options.SkipGuests && user.UserType.Equals("guest", StringComparison.OrdinalIgnoreCase))
+            // #EXT# UPNs are B2B/external (guest) identities homed in another tenant.
+            // They can't be recreated as normal users, so treat them as guests.
+            var isExternal = user.UserPrincipalName.Contains("#EXT#", StringComparison.OrdinalIgnoreCase);
+            var isGuest = isExternal || user.UserType.Equals("guest", StringComparison.OrdinalIgnoreCase);
+
+            if (_config.Options.SkipGuests && isGuest)
             {
                 action = "skip";
-                reason = "guest user";
+                reason = isExternal ? "external/guest (#EXT#)" : "guest user";
             }
             else if (existing.Contains(targetUpn))
             {
@@ -92,6 +97,7 @@ public sealed class UsersWorkload
                 SourceUpn = user.UserPrincipalName,
                 TargetUpn = targetUpn,
                 DisplayName = TargetNaming.TargetDisplayName(user.DisplayName, _config),
+                UserType = user.UserType,
                 Action = action,
                 Reason = reason,
             });

@@ -47,6 +47,26 @@ public class UsersWorkloadTests
     }
 
     [Fact]
+    public void Plan_SkipsExternalExtAccountsEvenWhenMemberType()
+    {
+        var workload = new UsersWorkload(TestData.Config());
+        // A B2B account invited as Member but homed elsewhere (#EXT# UPN).
+        var users = new[]
+        {
+            new SourceUser
+            {
+                Id = "x",
+                UserPrincipalName = "vendor_othercorp.com#EXT#@contoso.onmicrosoft.com",
+                DisplayName = "Vendor",
+                UserType = "Member",
+            },
+        };
+        var planned = workload.Plan(users);
+        Assert.Equal("skip", planned[0].Action);
+        Assert.Contains("#EXT#", planned[0].Reason);
+    }
+
+    [Fact]
     public async Task Migrate_DryRun_WritesNothing()
     {
         var posted = false;

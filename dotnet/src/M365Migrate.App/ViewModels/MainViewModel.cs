@@ -335,7 +335,7 @@ public sealed class MainViewModel : ViewModelBase
                     {
                         Name = p.TargetUpn,
                         Action = p.Action,
-                        Detail = p.SourceUpn,
+                        Detail = $"{p.SourceUpn}  [{p.UserType}]",
                         Reason = p.Reason ?? "",
                     });
                 Status = $"Planned {_plannedUsers.Count} users. Review, then Migrate.";
