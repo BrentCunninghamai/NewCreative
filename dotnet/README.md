@@ -32,6 +32,9 @@ default. **All workloads are now ported** (full parity with the Python engine):
 - **Groups** — discover, plan, sync membership + ownership; dynamic groups
   recreated with their membership rule.
 - **Mailboxes** — discover, plan, migrate Exchange Online mailbox *settings*.
+- **Mail (content)** — copy a user's mail folders + messages source→target,
+  full-fidelity via MIME; idempotent (skips messages whose internetMessageId
+  already exists in the target folder).
 - **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
   simple upload, large files via resumable upload session; reapply direct grants.
 - **Teams** — discover teams + channels, plan, enable Teams on the migrated M365
@@ -54,7 +57,8 @@ details (tenant id, client id, secret, primary domain), **Test connections** to
 confirm auth + permissions, pick a workload, then **Discover & Plan** and
 **Migrate** (dry run unless *Execute* is ticked). Results stream into a grid. A
 **Cancel** button stops a long or mistaken run mid-flight. All workloads (Users,
-Groups, Mailboxes, Files, Teams) are wired up.
+Groups, Mailboxes, Mail content, Files, Teams) are wired up. Files and Mail use
+the **Scope** field (a source user UPN).
 
 ### Prerequisites
 

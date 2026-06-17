@@ -36,6 +36,7 @@ Do this **twice** — once in the source tenant, once in the target tenant.
 | Users enrich (licenses/manager) | `User.ReadWrite.All`, `Directory.ReadWrite.All` |
 | Groups     | `Group.ReadWrite.All`, `User.Read.All` |
 | Mailboxes  | `MailboxSettings.ReadWrite`, `User.Read.All` |
+| Mail (content) | `Mail.ReadWrite`, `User.Read.All` |
 | Files      | `Files.ReadWrite.All`, `Sites.ReadWrite.All`, `User.Read.All` |
 | Teams      | `Group.ReadWrite.All`, `Team.Create`, `Channel.ReadBasic.All` |
 
@@ -107,18 +108,20 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 | Teams **skipped: target M365 group missing** | Run **Groups** first so the backing group exists. |
 | Teams **error** on enable | The target group has no owner — ensure Groups sync added owners (owners must themselves exist as migrated users). |
 | Files **error** on a huge file | Very large files use an upload session; transient failures can be re-run (re-upload is idempotent/replace). |
+| Mail **slow** / 429s | Expected for big mailboxes — Graph throttles; the client backs off and retries. Re-running is safe (already-copied messages are skipped). |
+| Mail folders look different | Folders are matched by display name; tenants in different languages may not match well-known folders (Inbox, etc.). |
 
 ---
 
 ## What this tool does and does not do
 
 **Does:** create users; provision security/M365 groups with membership, owners,
-and dynamic rules; migrate mailbox *settings*; copy OneDrive/SharePoint files and
-folders (small + large via upload sessions) and reapply direct user sharing;
+and dynamic rules; migrate mailbox *settings*; copy **mail content** (folders +
+messages, full-fidelity MIME, idempotent) per user; copy OneDrive/SharePoint files
+and folders (small + large via upload sessions) and reapply direct user sharing;
 enable Teams and recreate standard channels.
 
-**Does not (by design / platform limits):** move mailbox *content*
-(mail/calendar/contacts — needs a native cross-tenant mailbox move); distribution
+**Does not yet:** calendar and contacts content (next); distribution
 lists / mail-enabled security groups (need Exchange Online); private/shared
 channels, tabs, apps; file version history and full metadata (needs the
 SharePoint Migration API). These are surfaced honestly rather than silently
