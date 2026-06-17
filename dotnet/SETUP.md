@@ -41,9 +41,18 @@ Do this **twice** — once in the source tenant, once in the target tenant.
 | Files      | `Files.ReadWrite.All`, `Sites.ReadWrite.All`, `User.Read.All` |
 | Teams      | `Group.ReadWrite.All`, `Team.Create`, `Channel.ReadBasic.All` |
 | Teams (messages) | `Teamwork.Migrate.All`, `User.Read.All` |
+| MTO confirmation (optional) | `MultiTenantOrganization.Read.All` (on the **target** app) |
 
 `Organization.Read.All` is what **Test connections** reads, so add it to both
 apps. Granting the broad set above on both tenants is simplest; tighten later.
+
+`MultiTenantOrganization.Read.All` is **optional**: with it, **Test connections**
+also reads the target's Multi-Tenant Organization and tells you whether the source
+tenant is a member (so you know some source users are *expected* to already exist in
+the target via cross-tenant sync, and the plan will flag them as `conflict`). Without
+it, the tool still detects those already-present users from their `#EXT#` identities —
+this permission just makes the relationship explicit instead of inferred. Add it to
+the **target** app registration only.
 
 ---
 

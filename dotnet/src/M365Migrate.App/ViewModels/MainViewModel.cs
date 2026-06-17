@@ -168,7 +168,23 @@ public sealed class MainViewModel : ViewModelBase
 
             var sourceOrg = await ConnectionTester.CheckAsync(source, ct);
             var targetOrg = await ConnectionTester.CheckAsync(target, ct);
-            Status = $"Connected OK.  Source: \"{sourceOrg}\"   Target: \"{targetOrg}\".  Ready to Discover & Plan.";
+            var status = $"Connected OK.  Source: \"{sourceOrg}\"   Target: \"{targetOrg}\".  Ready to Discover & Plan.";
+
+            // Authoritatively confirm a Multi-Tenant Organization link (if the target
+            // app has MultiTenantOrganization.Read.All); silent if not consented.
+            try
+            {
+                var mto = await MultiTenantOrgInspector.InspectAsync(target, ct);
+                var mtoLine = MultiTenantOrgInspector.Summarize(mto, config.Source.TenantId);
+                if (mtoLine is not null)
+                    status += "  " + mtoLine;
+            }
+            catch (Exception)
+            {
+                // MTO is advisory only — never fail the connection test over it.
+            }
+
+            Status = status;
         }
         catch (OperationCanceledException)
         {
