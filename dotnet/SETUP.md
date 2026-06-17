@@ -108,6 +108,36 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 (e.g. `(Contoso)`) so merged users are also distinguishable in the target GAL
 (`Jane Doe (Contoso)`).
 
+## Taking over a user already (partly) migrated by Microsoft
+
+Common case: a user was started with **Microsoft's native cross-tenant migration** —
+Entra **cross-tenant sync** for identity plus an Exchange **cross-tenant mailbox move**
+(the "T2T … CatchUp" batches in EAC, often with Microsoft **cross-tenant licenses**) —
+and you want this tool to **finish** the job (fill mail gaps, and do **OneDrive** and
+**Teams**, which the mailbox move does *not* cover).
+
+Two things make this work:
+
+1. **Mailbox-wide mail dedup.** The mail workload skips any message already in the
+   target by `internetMessageId` (regardless of folder), so it only copies what
+   Microsoft's move hasn't already landed. Safe to re-run.
+2. **Target user UPN override.** These users' target identity is usually **not** a clean
+   domain rewrite of the source (e.g. source `paule@net1.com`, but the target mailbox
+   is `paul.encarnacao@target.onmicrosoft.com`, with the M365 *username* something else
+   again). Domain-rewrite would target the wrong (or a non-existent) account. So fill:
+   - **Scope** = the user's **source** UPN (the net1.com mailbox you're reading from).
+   - **Target user UPN** = the user's **actual UPN in the target** — i.e. the value shown
+     as **Username** in the target's M365 admin *Manage username and email* (not an alias,
+     not necessarily the primary SMTP). This is used verbatim as the target mailbox/OneDrive.
+
+   Leave **Target user UPN** blank for normal users whose target *is* a domain rewrite.
+
+> **Timing — don't race an in-flight mailbox move.** While Microsoft's EAC batch shows
+> the mailbox as **Synced** (not **Completed**), it is an *active* move target. Let that
+> user's batch **Complete** (or remove it) **before** running this tool's **Mail** workload
+> on the same mailbox, so the two aren't writing to it at once. **OneDrive** and **Teams**
+> are not part of the mailbox move, so you can run those at any time without conflict.
+
 ## 4. Troubleshooting
 
 | Symptom | Cause / fix |

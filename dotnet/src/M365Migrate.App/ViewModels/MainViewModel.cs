@@ -28,8 +28,12 @@ public sealed class MainViewModel : ViewModelBase
     public string TargetDomain { get; set; } = "";
 
     public string Workload { get; set; } = "Users";
-    // For the Files workload: the source user's UPN (their OneDrive).
+    // For the per-user content workloads (Files/Mail/Calendar): the SOURCE user's UPN.
     public string Scope { get; set; } = "";
+    // Optional explicit TARGET user UPN. Use when the target identity isn't a clean
+    // domain-rewrite of the source — e.g. a user already partly migrated by Microsoft's
+    // cross-tenant orchestrator / cross-tenant sync. Blank = derive by rewrite.
+    public string ScopeTargetUpn { get; set; } = "";
     public bool RewriteUpn { get; set; } = true;
     public bool SkipGuests { get; set; } = true;
     public bool Execute { get; set; }
@@ -266,7 +270,7 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Files (OneDrive)")
             {
                 var workload = new FilesWorkload(config);
-                (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope);
+                (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope, targetUserOverride: ScopeTargetUpn);
                 var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
                 _plannedFiles = workload.Plan(driveItems);
                 foreach (var p in _plannedFiles)
@@ -301,7 +305,7 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Mail (content)")
             {
                 var workload = new MailWorkload(config);
-                (_mailSourceRef, _mailTargetRef) = workload.ResolveUserRefs(Scope);
+                (_mailSourceRef, _mailTargetRef) = workload.ResolveUserRefs(Scope, ScopeTargetUpn);
                 var folders = await workload.DiscoverFoldersAsync(source, _mailSourceRef, ct);
                 _plannedMailFolders = workload.Plan(folders);
                 foreach (var p in _plannedMailFolders)
@@ -318,7 +322,7 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Calendar & Contacts (content)")
             {
                 var workload = new CalendarContactsWorkload(config);
-                (_ccSourceRef, _ccTargetRef) = workload.ResolveUserRefs(Scope);
+                (_ccSourceRef, _ccTargetRef) = workload.ResolveUserRefs(Scope, ScopeTargetUpn);
                 var (events, contacts) = await workload.CountAsync(source, _ccSourceRef, ct);
                 _calContactsPlanned = true;
                 Rows.Add(new PlanRow { Name = "Calendar", Action = "copy", Detail = $"{events} events", Reason = "" });

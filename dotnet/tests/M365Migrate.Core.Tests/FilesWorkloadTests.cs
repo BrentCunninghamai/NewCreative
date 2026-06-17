@@ -48,6 +48,12 @@ public class FilesWorkloadTests
         Assert.Equal("/sites/s1/drive", ss);
         Assert.Equal("/sites/s2/drive", ts);
 
+        // Explicit target user override (target OneDrive isn't a clean rewrite).
+        var (so, to) = workload.ResolveDriveRoots(user: "paule@net1.com",
+            targetUserOverride: "paul.encarnacao@lesakatechnologies.onmicrosoft.com");
+        Assert.Equal("/users/paule@net1.com/drive", so);
+        Assert.Equal("/users/paul.encarnacao@lesakatechnologies.onmicrosoft.com/drive", to);
+
         Assert.Throws<ArgumentException>(() => workload.ResolveDriveRoots());
         Assert.Throws<ArgumentException>(() => workload.ResolveDriveRoots(site: "s1"));
     }

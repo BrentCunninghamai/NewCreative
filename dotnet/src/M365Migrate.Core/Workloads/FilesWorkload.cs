@@ -21,11 +21,20 @@ public sealed class FilesWorkload
 
     private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
-    /// <summary>Return the (source, target) drive root paths for a user or a site.</summary>
-    public (string Source, string Target) ResolveDriveRoots(string? user = null, string? site = null, string? targetSite = null)
+    /// <summary>
+    /// Return the (source, target) drive root paths for a user or a site.
+    /// <paramref name="targetUserOverride"/> overrides the domain-rewrite for the
+    /// target OneDrive owner — needed when the target UPN isn't a clean rewrite of
+    /// the source (e.g. a user already partly migrated by Microsoft's cross-tenant
+    /// orchestrator / cross-tenant sync).
+    /// </summary>
+    public (string Source, string Target) ResolveDriveRoots(string? user = null, string? site = null, string? targetSite = null, string? targetUserOverride = null)
     {
         if (!string.IsNullOrWhiteSpace(user))
-            return ($"/users/{user}/drive", $"/users/{Rewrite(user)}/drive");
+        {
+            var targetUser = string.IsNullOrWhiteSpace(targetUserOverride) ? Rewrite(user) : targetUserOverride.Trim();
+            return ($"/users/{user}/drive", $"/users/{targetUser}/drive");
+        }
         if (!string.IsNullOrWhiteSpace(site))
         {
             if (string.IsNullOrWhiteSpace(targetSite))

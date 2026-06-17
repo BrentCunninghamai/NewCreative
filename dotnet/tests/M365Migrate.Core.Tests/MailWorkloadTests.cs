@@ -24,6 +24,17 @@ public class MailWorkloadTests
     }
 
     [Fact]
+    public void ResolveUserRefs_HonorsExplicitTargetOverride()
+    {
+        var workload = new MailWorkload(TestData.Config());
+        // Target identity isn't a clean rewrite (e.g. partly migrated by Microsoft's
+        // orchestrator): the explicit override wins.
+        var (s, t) = workload.ResolveUserRefs("paule@net1.com", "paul.encarnacao@lesakatechnologies.onmicrosoft.com");
+        Assert.Equal("/users/paule@net1.com", s);
+        Assert.Equal("/users/paul.encarnacao@lesakatechnologies.onmicrosoft.com", t);
+    }
+
+    [Fact]
     public async Task Discover_WalksFolderTreeBreadthFirst()
     {
         var handler = new FakeHttpMessageHandler((req, _) =>
