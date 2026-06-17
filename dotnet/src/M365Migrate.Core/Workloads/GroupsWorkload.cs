@@ -55,10 +55,7 @@ public sealed class GroupsWorkload
         return set;
     }
 
-    private string Rewrite(string upn) =>
-        _config.Options.RewriteUpnDomain
-            ? UpnMapper.Rewrite(upn, _config.Source.PrimaryDomain, _config.Target.PrimaryDomain)
-            : upn;
+    private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
     /// <summary>Build a group reconciliation plan without writing anything.</summary>
     public List<PlannedGroup> Plan(IEnumerable<SourceGroup> groups, IDictionary<string, string>? existingTargetGroups = null)
@@ -71,7 +68,12 @@ public sealed class GroupsWorkload
         foreach (var group in groups)
         {
             var kind = group.Kind;
-            var nickname = group.MailNickname;
+            var sourceNickname = group.MailNickname;
+            // The target nickname carries the optional prefix/suffix so groups from
+            // different source tenants don't collide in a shared target.
+            var targetNickname = string.IsNullOrEmpty(sourceNickname)
+                ? sourceNickname
+                : TargetNaming.TargetMailNickname(sourceNickname, _config);
             string action;
             string? reason;
 
@@ -80,12 +82,12 @@ public sealed class GroupsWorkload
                 action = "skip";
                 reason = $"{kind} group not provisionable via Graph";
             }
-            else if (string.IsNullOrEmpty(nickname))
+            else if (string.IsNullOrEmpty(sourceNickname))
             {
                 action = "skip";
                 reason = "group has no mailNickname";
             }
-            else if (existing.ContainsKey(nickname))
+            else if (existing.ContainsKey(targetNickname!))
             {
                 action = "exists";
                 reason = null;
@@ -99,7 +101,7 @@ public sealed class GroupsWorkload
             planned.Add(new PlannedGroup
             {
                 SourceId = group.Id,
-                MailNickname = nickname,
+                MailNickname = targetNickname,
                 DisplayName = group.DisplayName,
                 Kind = kind,
                 Action = action,

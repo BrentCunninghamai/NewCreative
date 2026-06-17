@@ -34,6 +34,11 @@ public sealed class MainViewModel : ViewModelBase
     public bool SkipGuests { get; set; } = true;
     public bool Execute { get; set; }
 
+    // Optional name prefix/suffix to keep identities distinct when merging
+    // multiple source tenants into one target (e.g. prefix "contoso-").
+    public string NamePrefix { get; set; } = "";
+    public string NameSuffix { get; set; } = "";
+
     private bool _isBusy;
     public bool IsBusy
     {
@@ -111,7 +116,13 @@ public sealed class MainViewModel : ViewModelBase
             ClientSecret = TargetClientSecret,
             PrimaryDomain = TargetDomain.Trim(),
         },
-        Options = new MigrationOptions { RewriteUpnDomain = RewriteUpn, SkipGuests = SkipGuests },
+        Options = new MigrationOptions
+        {
+            RewriteUpnDomain = RewriteUpn,
+            SkipGuests = SkipGuests,
+            NamePrefix = NamePrefix.Trim(),
+            NameSuffix = NameSuffix.Trim(),
+        },
     };
 
     private string? Validate()
