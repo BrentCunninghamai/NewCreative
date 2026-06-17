@@ -206,6 +206,32 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Resolve and display the source and target identities for a per-user content run,
+    /// so the operator can confirm targeting before any write. Adds an "Identity" row and
+    /// returns a short status suffix; warns clearly if either side can't be resolved.
+    /// </summary>
+    private async Task<string> VerifyIdentitiesAsync(
+        GraphClient source, GraphClient target, string sourceRef, string targetRef, CancellationToken ct)
+    {
+        var src = await UserResolver.TryResolveAsync(source, sourceRef, ct);
+        var tgt = await UserResolver.TryResolveAsync(target, targetRef, ct);
+        var srcText = src?.Describe() ?? $"NOT FOUND ({UserResolver.NormalizeKey(sourceRef)})";
+        var tgtText = tgt?.Describe() ?? $"NOT FOUND ({UserResolver.NormalizeKey(targetRef)})";
+        Rows.Add(new PlanRow
+        {
+            Name = "Identity",
+            Action = src is not null && tgt is not null ? "resolved" : "check",
+            Detail = $"{srcText}  →  {tgtText}",
+            Reason = tgt is null ? "Target not found — set 'Target user UPN' (UPN or object ID)."
+                   : src is null ? "Source not found — check the Scope UPN."
+                   : "",
+        });
+        return src is null || tgt is null
+            ? "  ⚠ Identity check failed — see the Identity row before migrating."
+            : $"  {srcText}  →  {tgtText}.";
+    }
+
     /// <summary>Connect to both tenants, discover the source, and build a plan.</summary>
     public async Task PlanAsync()
     {
@@ -271,6 +297,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var workload = new FilesWorkload(config);
                 (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope, targetUserOverride: ScopeTargetUpn);
+                var idSuffix = await VerifyIdentitiesAsync(source, target, _filesSourceRoot, _filesTargetRoot, ct);
                 var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
                 _plannedFiles = workload.Plan(driveItems);
                 foreach (var p in _plannedFiles)
@@ -281,7 +308,7 @@ public sealed class MainViewModel : ViewModelBase
                         Detail = p.IsFolder ? "folder" : $"file ({p.Size} bytes)",
                         Reason = p.Reason ?? "",
                     });
-                Status = $"Planned {_plannedFiles.Count} drive items for {Scope}. Review, then Migrate.";
+                Status = $"Planned {_plannedFiles.Count} drive items for {Scope}. Review, then Migrate." + idSuffix;
             }
             else if (Workload == "Teams")
             {
@@ -306,6 +333,7 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var workload = new MailWorkload(config);
                 (_mailSourceRef, _mailTargetRef) = workload.ResolveUserRefs(Scope, ScopeTargetUpn);
+                var idSuffix = await VerifyIdentitiesAsync(source, target, _mailSourceRef, _mailTargetRef, ct);
                 var folders = await workload.DiscoverFoldersAsync(source, _mailSourceRef, ct);
                 _plannedMailFolders = workload.Plan(folders);
                 foreach (var p in _plannedMailFolders)
@@ -317,17 +345,18 @@ public sealed class MainViewModel : ViewModelBase
                         Reason = "",
                     });
                 Status = $"Planned {_plannedMailFolders.Count} mail folders " +
-                         $"({_plannedMailFolders.Sum(f => f.ItemCount)} items) for {Scope}. Review, then Migrate.";
+                         $"({_plannedMailFolders.Sum(f => f.ItemCount)} items) for {Scope}. Review, then Migrate." + idSuffix;
             }
             else if (Workload == "Calendar & Contacts (content)")
             {
                 var workload = new CalendarContactsWorkload(config);
                 (_ccSourceRef, _ccTargetRef) = workload.ResolveUserRefs(Scope, ScopeTargetUpn);
+                var idSuffix = await VerifyIdentitiesAsync(source, target, _ccSourceRef, _ccTargetRef, ct);
                 var (events, contacts) = await workload.CountAsync(source, _ccSourceRef, ct);
                 _calContactsPlanned = true;
                 Rows.Add(new PlanRow { Name = "Calendar", Action = "copy", Detail = $"{events} events", Reason = "" });
                 Rows.Add(new PlanRow { Name = "Contacts", Action = "copy", Detail = $"{contacts} contacts", Reason = "" });
-                Status = $"Planned {events} events and {contacts} contacts for {Scope}. Review, then Migrate.";
+                Status = $"Planned {events} events and {contacts} contacts for {Scope}. Review, then Migrate." + idSuffix;
             }
             else if (Workload == "Teams (messages)")
             {

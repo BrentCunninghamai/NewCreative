@@ -131,6 +131,14 @@ Two things make this work:
      not necessarily the primary SMTP). This is used verbatim as the target mailbox/OneDrive.
 
    Leave **Target user UPN** blank for normal users whose target *is* a domain rewrite.
+   The **Target user UPN** field also accepts the user's **object ID (GUID)** — handy when
+   the UPN is ambiguous in these hybrid setups.
+
+After **Discover & Plan** for a per-user content workload (Mail / Files / Calendar), the
+grid's first **Identity** row shows exactly who was resolved on each side, e.g.
+*Paul Encarnacao (PaulE@net1.com) → Paul Encarnacao (paul.encarnacao@…onmicrosoft.com)*.
+Confirm that's the right person **before** you tick Execute. If it reads `NOT FOUND`, fix
+the Scope (source) or set the **Target user UPN** (UPN or object ID) and re-plan.
 
 > **Timing — don't race an in-flight mailbox move.** While Microsoft's EAC batch shows
 > the mailbox as **Synced** (not **Completed**), it is an *active* move target. Let that
