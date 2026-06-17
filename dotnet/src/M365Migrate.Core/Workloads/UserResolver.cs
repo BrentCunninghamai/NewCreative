@@ -46,7 +46,7 @@ public static class UserResolver
         }
     }
 
-    internal static string NormalizeKey(string userRefOrKey)
+    public static string NormalizeKey(string userRefOrKey)
     {
         var key = userRefOrKey?.Trim() ?? "";
         const string prefix = "/users/";
