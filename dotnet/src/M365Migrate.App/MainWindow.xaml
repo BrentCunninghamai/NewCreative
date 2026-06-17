@@ -52,6 +52,8 @@
                 <TextBox x:Name="NamePrefixBox" />
                 <TextBlock Text="Name suffix (optional)" />
                 <TextBox x:Name="NameSuffixBox" />
+                <TextBlock Text="Display-name suffix (optional, e.g. (Contoso))" />
+                <TextBox x:Name="DisplayNameSuffixBox" />
 
                 <CheckBox x:Name="RewriteUpnCheck" Content="Rewrite UPN domain to target" IsChecked="True" Margin="0,10,0,4" />
                 <CheckBox x:Name="SkipGuestsCheck" Content="Skip guest users" IsChecked="True" Margin="0,0,0,4" />

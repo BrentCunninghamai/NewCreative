@@ -30,6 +30,7 @@ public partial class MainWindow : Window
         _vm.Scope = ScopeBox.Text;
         _vm.NamePrefix = NamePrefixBox.Text;
         _vm.NameSuffix = NameSuffixBox.Text;
+        _vm.DisplayNameSuffix = DisplayNameSuffixBox.Text;
         _vm.RewriteUpn = RewriteUpnCheck.IsChecked == true;
         _vm.SkipGuests = SkipGuestsCheck.IsChecked == true;
         _vm.Execute = ExecuteCheck.IsChecked == true;

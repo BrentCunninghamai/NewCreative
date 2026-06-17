@@ -92,7 +92,9 @@ sources each with `john@…`, or a `sales` group in both). Set a per-source **Na
 prefix** (or suffix) — e.g. `contoso-` for one source, `northwind-` for the next.
 It tags each migrated user's UPN local-part (`contoso-john@target`) and each group
 mailNickname (`contoso-sales`), so nothing overwrites another source. Leave it
-blank for a single-source migration.
+blank for a single-source migration. Optionally set a **Display-name suffix**
+(e.g. `(Contoso)`) so merged users are also distinguishable in the target GAL
+(`Jane Doe (Contoso)`).
 
 ## 4. Troubleshooting
 

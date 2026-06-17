@@ -13,6 +13,12 @@ public sealed class MigrationOptions
     /// </summary>
     public string NamePrefix { get; set; } = "";
     public string NameSuffix { get; set; } = "";
+
+    /// <summary>
+    /// Optional text appended to a migrated user's display name (e.g. "(Contoso)")
+    /// so merged users are distinguishable in the target GAL. Empty = no change.
+    /// </summary>
+    public string DisplayNameSuffix { get; set; } = "";
 }
 
 /// <summary>Top-level configuration: a source tenant, a target tenant, and options.</summary>
