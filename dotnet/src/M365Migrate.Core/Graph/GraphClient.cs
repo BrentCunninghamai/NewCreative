@@ -150,6 +150,27 @@ public sealed class GraphClient
         return doc.RootElement.Clone();
     }
 
+    /// <summary>
+    /// POST a JSON body and return the response's Location (or Content-Location)
+    /// header — used for async creates (e.g. a migration-mode team) that return 202.
+    /// </summary>
+    public async Task<string?> PostJsonGetLocationAsync(string url, object body, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, url, () => JsonBody(body), ct);
+        if (response.Headers.Location is not null)
+            return response.Headers.Location.ToString();
+        if (response.Headers.TryGetValues("Location", out var values))
+            return values.FirstOrDefault();
+        return response.Content.Headers.ContentLocation?.ToString();
+    }
+
+    /// <summary>POST with no request body (e.g. teams completeMigration).</summary>
+    public async Task PostNoBodyAsync(string url, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, url, null, ct);
+        _ = response;
+    }
+
     /// <summary>POST a JSON body and return the parsed response (or a JSON null if empty).</summary>
     public async Task<JsonElement> PostJsonAsync(string url, object body, CancellationToken ct = default)
     {
