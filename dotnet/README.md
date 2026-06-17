@@ -35,6 +35,9 @@ default. **All workloads are now ported** (full parity with the Python engine):
 - **Mail (content)** — copy a user's mail folders + messages source→target,
   full-fidelity via MIME; idempotent (skips messages whose internetMessageId
   already exists in the target folder).
+- **Calendar & Contacts (content)** — copy a user's calendar events and contacts;
+  best-effort idempotent (skips events matching subject+start+end, contacts
+  matching display name + primary email).
 - **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
   simple upload, large files via resumable upload session; reapply direct grants.
 - **Teams** — discover teams + channels, plan, enable Teams on the migrated M365

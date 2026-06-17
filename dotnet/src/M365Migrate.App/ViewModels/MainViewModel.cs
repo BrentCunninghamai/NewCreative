@@ -104,6 +104,9 @@ public sealed class MainViewModel : ViewModelBase
     private List<PlannedMailFolder>? _plannedMailFolders;
     private string? _mailSourceRef;
     private string? _mailTargetRef;
+    private bool _calContactsPlanned;
+    private string? _ccSourceRef;
+    private string? _ccTargetRef;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -197,6 +200,7 @@ public sealed class MainViewModel : ViewModelBase
         _plannedFiles = null;
         _plannedTeams = null;
         _plannedMailFolders = null;
+        _calContactsPlanned = false;
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         try
@@ -293,6 +297,16 @@ public sealed class MainViewModel : ViewModelBase
                 Status = $"Planned {_plannedMailFolders.Count} mail folders " +
                          $"({_plannedMailFolders.Sum(f => f.ItemCount)} items) for {Scope}. Review, then Migrate.";
             }
+            else if (Workload == "Calendar & Contacts (content)")
+            {
+                var workload = new CalendarContactsWorkload(config);
+                (_ccSourceRef, _ccTargetRef) = workload.ResolveUserRefs(Scope);
+                var (events, contacts) = await workload.CountAsync(source, _ccSourceRef, ct);
+                _calContactsPlanned = true;
+                Rows.Add(new PlanRow { Name = "Calendar", Action = "copy", Detail = $"{events} events", Reason = "" });
+                Rows.Add(new PlanRow { Name = "Contacts", Action = "copy", Detail = $"{contacts} contacts", Reason = "" });
+                Status = $"Planned {events} events and {contacts} contacts for {Scope}. Review, then Migrate.";
+            }
             else
             {
                 var workload = new UsersWorkload(config);
@@ -335,7 +349,8 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (IsBusy) return;
         if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
-            && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null)
+            && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null
+            && !_calContactsPlanned)
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -379,6 +394,13 @@ public sealed class MainViewModel : ViewModelBase
                 var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
                 results = await new MailWorkload(config).MigrateAsync(
                     source, target, _mailSourceRef!, _mailTargetRef!, _plannedMailFolders, dryRun: !Execute, ct: ct);
+            }
+            else if (Workload == "Calendar & Contacts (content)" && _calContactsPlanned)
+            {
+                using var sourceHttp = new HttpClient();
+                var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                results = await new CalendarContactsWorkload(config).MigrateAsync(
+                    source, target, _ccSourceRef!, _ccTargetRef!, dryRun: !Execute, ct: ct);
             }
             else if (_plannedUsers is not null)
             {
