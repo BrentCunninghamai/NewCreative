@@ -58,8 +58,8 @@ public class MailWorkloadTests
             if (req.Method == HttpMethod.Get && uri.Contains("fabrikam") && uri.Contains("/mailFolders?"))
                 return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
                     "{\"value\":[{\"id\":\"t-inbox\",\"displayName\":\"Inbox\",\"totalItemCount\":1,\"childFolderCount\":0}]}");
-            // existing target messages in the folder (idempotency seed)
-            if (req.Method == HttpMethod.Get && uri.Contains("/mailFolders/t-inbox/messages"))
+            // existing target messages, scanned mailbox-wide (idempotency seed)
+            if (req.Method == HttpMethod.Get && uri.Contains("fabrikam") && uri.Contains("internetMessageId"))
                 return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
                     $"{{\"value\":[{{\"internetMessageId\":\"{dupId}\"}}]}}");
             // source messages: one duplicate, one new
@@ -92,6 +92,47 @@ public class MailWorkloadTests
         // The created message body is the base64 of the source MIME.
         Assert.Equal(Convert.ToBase64String(Encoding.ASCII.GetBytes("RAWMIME")),
             Encoding.ASCII.GetString(postedBody!));
+    }
+
+    [Fact]
+    public async Task Migrate_SkipsMessageAlreadyInADifferentTargetFolder()
+    {
+        // A message that another tool already placed in the target's Archive must be
+        // recognised and skipped even though the source has it in Inbox. This proves
+        // the dedup is mailbox-wide, not per-folder.
+        var movedId = "<moved@contoso>";
+        var postedToTarget = false;
+        var handler = new FakeHttpMessageHandler((req, _) =>
+        {
+            var uri = req.RequestUri!.ToString();
+            // target folder discovery: Inbox exists (Archive is irrelevant to placement)
+            if (req.Method == HttpMethod.Get && uri.Contains("fabrikam") && uri.Contains("/mailFolders?"))
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    "{\"value\":[{\"id\":\"t-inbox\",\"displayName\":\"Inbox\",\"totalItemCount\":1,\"childFolderCount\":0}]}");
+            // mailbox-wide scan returns the message (it's filed in Archive in the target)
+            if (req.Method == HttpMethod.Get && uri.Contains("fabrikam") && uri.Contains("internetMessageId"))
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    $"{{\"value\":[{{\"internetMessageId\":\"{movedId}\"}}]}}");
+            // source Inbox has that same message
+            if (req.Method == HttpMethod.Get && uri.Contains("/mailFolders/s-inbox/messages"))
+                return FakeHttpMessageHandler.Json(HttpStatusCode.OK,
+                    $"{{\"value\":[{{\"id\":\"m1\",\"internetMessageId\":\"{movedId}\"}}]}}");
+            if (req.Method == HttpMethod.Post) postedToTarget = true;
+            return FakeHttpMessageHandler.Json(HttpStatusCode.OK, "{\"value\":[]}");
+        });
+        var client = new GraphClient(new HttpClient(handler), TokenProviders.Static("t"));
+        var workload = new MailWorkload(TestData.Config());
+
+        var planned = new[]
+        {
+            new PlannedMailFolder { SourceId = "s-inbox", DisplayName = "Inbox", Path = "Inbox", ItemCount = 1 },
+        };
+        var results = await workload.MigrateAsync(client, client, Src, Tgt, planned, dryRun: false);
+
+        Assert.Equal("ok", results[0].Status);
+        Assert.Equal("0", results[0].Detail["copied"]);
+        Assert.Equal("1", results[0].Detail["skipped"]);
+        Assert.False(postedToTarget); // nothing re-copied
     }
 
     [Fact]
