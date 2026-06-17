@@ -56,12 +56,61 @@ public sealed class UsersWorkload
 
     private string TargetUpn(string sourceUpn) => TargetNaming.TargetUpn(sourceUpn, _config);
 
+    /// <summary>
+    /// Decode a B2B/external (#EXT#) UPN back to the original source UPN. e.g.
+    /// "alice_contoso.onmicrosoft.com#EXT#@target..." -> "alice@contoso.onmicrosoft.com".
+    /// Returns null if the value isn't an #EXT# UPN.
+    /// </summary>
+    internal static string? DecodeExtUpn(string upn)
+    {
+        var marker = upn.IndexOf("#EXT#", StringComparison.OrdinalIgnoreCase);
+        if (marker < 0)
+            return null;
+        var prefix = upn[..marker];
+        var lastUnderscore = prefix.LastIndexOf('_');
+        if (lastUnderscore < 0)
+            return null;
+        return prefix[..lastUnderscore] + "@" + prefix[(lastUnderscore + 1)..];
+    }
+
+    /// <summary>
+    /// Identities already present in the target via cross-tenant sync / B2B (e.g. a
+    /// Multi-Tenant Organization): decoded #EXT# source UPNs plus target mail
+    /// addresses. Used to avoid creating native duplicates of users who are already
+    /// represented in the target.
+    /// </summary>
+    public static async Task<HashSet<string>> DiscoverCrossTenantIdentitiesAsync(GraphClient target, CancellationToken ct = default)
+    {
+        var raw = await target.GetAllAsync("/users?$select=userPrincipalName,mail&$top=999", ct);
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in raw)
+        {
+            var upn = item.GetStringOrNull("userPrincipalName");
+            if (upn is not null)
+            {
+                var decoded = DecodeExtUpn(upn);
+                if (decoded is not null)
+                    set.Add(decoded);
+            }
+            var mail = item.GetStringOrNull("mail");
+            if (mail is not null)
+                set.Add(mail);
+        }
+        return set;
+    }
+
     /// <summary>Build a migration plan without writing anything.</summary>
-    public List<PlannedUser> Plan(IEnumerable<SourceUser> users, ISet<string>? existingTargetUpns = null)
+    public List<PlannedUser> Plan(
+        IEnumerable<SourceUser> users,
+        ISet<string>? existingTargetUpns = null,
+        ISet<string>? crossTenantIdentities = null)
     {
         var existing = existingTargetUpns is null
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(existingTargetUpns, StringComparer.OrdinalIgnoreCase);
+        var crossTenant = crossTenantIdentities is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(crossTenantIdentities, StringComparer.OrdinalIgnoreCase);
 
         var planned = new List<PlannedUser>();
         foreach (var user in users)
@@ -75,10 +124,21 @@ public sealed class UsersWorkload
             var isExternal = user.UserPrincipalName.Contains("#EXT#", StringComparison.OrdinalIgnoreCase);
             var isGuest = isExternal || user.UserType.Equals("guest", StringComparison.OrdinalIgnoreCase);
 
+            // Already present in the target via cross-tenant sync / B2B (MTO): the
+            // source user appears as a decoded #EXT# identity or shares a target mail.
+            var presentCrossTenant =
+                crossTenant.Contains(user.UserPrincipalName)
+                || (user.Mail is not null && crossTenant.Contains(user.Mail));
+
             if (_config.Options.SkipGuests && isGuest)
             {
                 action = "skip";
                 reason = isExternal ? "external/guest (#EXT#)" : "guest user";
+            }
+            else if (presentCrossTenant)
+            {
+                action = "conflict";
+                reason = "already in target (cross-tenant/B2B sync)";
             }
             else if (existing.Contains(targetUpn))
             {

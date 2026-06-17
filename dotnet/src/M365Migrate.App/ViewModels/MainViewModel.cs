@@ -329,7 +329,8 @@ public sealed class MainViewModel : ViewModelBase
                 var workload = new UsersWorkload(config);
                 var users = await workload.DiscoverAsync(source, ct);
                 var existing = await UsersWorkload.DiscoverTargetUpnsAsync(target, ct);
-                _plannedUsers = workload.Plan(users, existing);
+                var crossTenant = await UsersWorkload.DiscoverCrossTenantIdentitiesAsync(target, ct);
+                _plannedUsers = workload.Plan(users, existing, crossTenant);
                 foreach (var p in _plannedUsers)
                     Rows.Add(new PlanRow
                     {
