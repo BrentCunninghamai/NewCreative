@@ -91,7 +91,7 @@ public sealed class UsersWorkload
                 SourceId = user.Id,
                 SourceUpn = user.UserPrincipalName,
                 TargetUpn = targetUpn,
-                DisplayName = user.DisplayName,
+                DisplayName = TargetNaming.TargetDisplayName(user.DisplayName, _config),
                 Action = action,
                 Reason = reason,
             });

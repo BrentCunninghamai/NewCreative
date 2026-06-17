@@ -31,4 +31,15 @@ public static class TargetNaming
     /// <summary>The target group mailNickname: source nickname with prefix/suffix applied.</summary>
     public static string TargetMailNickname(string? sourceNickname, MigrationConfig config)
         => $"{config.Options.NamePrefix}{sourceNickname}{config.Options.NameSuffix}";
+
+    /// <summary>
+    /// The target display name: the source name with the optional display-name
+    /// suffix appended (e.g. "Jane Doe (Contoso)"). Empty suffix leaves it unchanged.
+    /// </summary>
+    public static string? TargetDisplayName(string? sourceName, MigrationConfig config)
+    {
+        if (config.Options.DisplayNameSuffix.Length == 0)
+            return sourceName;
+        return $"{sourceName} {config.Options.DisplayNameSuffix}".Trim();
+    }
 }

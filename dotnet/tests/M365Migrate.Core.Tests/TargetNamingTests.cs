@@ -36,6 +36,17 @@ public class TargetNamingTests
     }
 
     [Fact]
+    public void TargetDisplayName_AppendsSuffix()
+    {
+        var bare = TestData.Config();
+        Assert.Equal("Jane Doe", TargetNaming.TargetDisplayName("Jane Doe", bare));
+
+        var tagged = TestData.Config();
+        tagged.Options.DisplayNameSuffix = "(Contoso)";
+        Assert.Equal("Jane Doe (Contoso)", TargetNaming.TargetDisplayName("Jane Doe", tagged));
+    }
+
+    [Fact]
     public void Prefix_DisambiguatesCollidingSources()
     {
         // Two sources both have "john"; per-source prefixes keep them distinct in target.

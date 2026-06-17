@@ -38,6 +38,8 @@ public sealed class MainViewModel : ViewModelBase
     // multiple source tenants into one target (e.g. prefix "contoso-").
     public string NamePrefix { get; set; } = "";
     public string NameSuffix { get; set; } = "";
+    // Appended to migrated users' display names, e.g. "(Contoso)".
+    public string DisplayNameSuffix { get; set; } = "";
 
     private bool _isBusy;
     public bool IsBusy
@@ -122,6 +124,7 @@ public sealed class MainViewModel : ViewModelBase
             SkipGuests = SkipGuests,
             NamePrefix = NamePrefix.Trim(),
             NameSuffix = NameSuffix.Trim(),
+            DisplayNameSuffix = DisplayNameSuffix.Trim(),
         },
     };
 
