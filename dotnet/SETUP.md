@@ -40,6 +40,7 @@ Do this **twice** — once in the source tenant, once in the target tenant.
 | Calendar & Contacts (content) | `Calendars.ReadWrite`, `Contacts.ReadWrite`, `User.Read.All` |
 | Files      | `Files.ReadWrite.All`, `Sites.ReadWrite.All`, `User.Read.All` |
 | Teams      | `Group.ReadWrite.All`, `Team.Create`, `Channel.ReadBasic.All` |
+| Teams (messages) | `Teamwork.Migrate.All`, `User.Read.All` |
 
 `Organization.Read.All` is what **Test connections** reads, so add it to both
 apps. Granting the broad set above on both tenants is simplest; tighten later.
@@ -120,10 +121,17 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 and dynamic rules; migrate mailbox *settings*; copy **mail content** (folders +
 messages, full-fidelity MIME, idempotent) and **calendar + contacts** per user;
 copy OneDrive/SharePoint files and folders (small + large via upload sessions) and
-reapply direct user sharing; enable Teams and recreate standard channels.
+reapply direct user sharing; enable Teams and recreate standard channels; and
+import Teams channel **message history** (migration mode — fresh team, original
+authors + timestamps, top-level messages, run once).
 
-**Does not yet:** Teams channel message history (needs migration-mode teams);
-distribution lists / mail-enabled security groups (need Exchange Online);
-private/shared channels, tabs, apps; file version history and full metadata (needs
-the SharePoint Migration API). These are surfaced honestly rather than silently
-skipped.
+**Does not yet:** Teams threaded replies, Teams team membership for migration-mode
+teams (add after migration), and 1:1/group chats; distribution lists /
+mail-enabled security groups (need Exchange Online); private/shared channels, tabs,
+apps; file version history and full metadata (needs the SharePoint Migration API).
+These are surfaced honestly rather than silently skipped.
+
+> **Teams (messages) note:** this path creates a **new** migration-mode team per
+> source team (separate from the structure-only Teams workload, which enables Teams
+> on the already-migrated M365 group). Use one or the other per team. It's **not
+> idempotent** — re-running creates a duplicate team, so run it once.

@@ -45,6 +45,7 @@
                     <ComboBoxItem Content="Mail (content)" />
                     <ComboBoxItem Content="Calendar &amp; Contacts (content)" />
                     <ComboBoxItem Content="Teams" />
+                    <ComboBoxItem Content="Teams (messages)" />
                 </ComboBox>
 
                 <TextBlock Text="Scope — source user UPN (for Files, Mail, Calendar &amp; Contacts)" Margin="0,8,0,0" />

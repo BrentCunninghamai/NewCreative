@@ -42,6 +42,10 @@ default. **All workloads are now ported** (full parity with the Python engine):
   simple upload, large files via resumable upload session; reapply direct grants.
 - **Teams** — discover teams + channels, plan, enable Teams on the migrated M365
   group, and recreate standard channels.
+- **Teams (messages)** — import channel **message history** via Graph migration
+  mode: create a fresh migration-mode team, recreate channels, import each message
+  with original author + timestamp, then completeMigration. Run once per team
+  (not idempotent); top-level messages (replies + membership are follow-ups).
 
 ## Build & test
 
