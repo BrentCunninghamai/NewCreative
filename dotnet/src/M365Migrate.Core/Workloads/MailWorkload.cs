@@ -25,12 +25,21 @@ public sealed class MailWorkload
 
     public MailWorkload(MigrationConfig config) => _config = config;
 
-    /// <summary>Return the (source, target) user resource refs for a source UPN.</summary>
-    public (string Source, string Target) ResolveUserRefs(string sourceUpn)
+    /// <summary>
+    /// Return the (source, target) user resource refs for a source UPN. When
+    /// <paramref name="targetUpnOverride"/> is supplied it is used verbatim as the
+    /// target identity instead of the domain-rewrite — needed when the target UPN
+    /// isn't a clean rewrite of the source (e.g. a user already partly migrated by
+    /// Microsoft's cross-tenant orchestrator / cross-tenant sync).
+    /// </summary>
+    public (string Source, string Target) ResolveUserRefs(string sourceUpn, string? targetUpnOverride = null)
     {
         if (string.IsNullOrWhiteSpace(sourceUpn))
             throw new ArgumentException("A mail migration needs a source user UPN.");
-        return ($"/users/{sourceUpn}", $"/users/{TargetNaming.TargetUpn(sourceUpn, _config)}");
+        var target = string.IsNullOrWhiteSpace(targetUpnOverride)
+            ? TargetNaming.TargetUpn(sourceUpn, _config)
+            : targetUpnOverride.Trim();
+        return ($"/users/{sourceUpn}", $"/users/{target}");
     }
 
     private const string FolderSelect = "id,displayName,parentFolderId,totalItemCount,childFolderCount";

@@ -38,11 +38,19 @@ public sealed class CalendarContactsWorkload
         "businessAddress", "homeAddress", "otherAddress", "birthday", "fileAs",
     };
 
-    public (string Source, string Target) ResolveUserRefs(string sourceUpn)
+    /// <summary>
+    /// (source, target) user refs. <paramref name="targetUpnOverride"/> overrides the
+    /// domain-rewrite for users whose target identity isn't a clean rewrite (e.g.
+    /// already partly migrated by Microsoft's cross-tenant orchestrator).
+    /// </summary>
+    public (string Source, string Target) ResolveUserRefs(string sourceUpn, string? targetUpnOverride = null)
     {
         if (string.IsNullOrWhiteSpace(sourceUpn))
             throw new ArgumentException("A calendar/contacts migration needs a source user UPN.");
-        return ($"/users/{sourceUpn}", $"/users/{TargetNaming.TargetUpn(sourceUpn, _config)}");
+        var target = string.IsNullOrWhiteSpace(targetUpnOverride)
+            ? TargetNaming.TargetUpn(sourceUpn, _config)
+            : targetUpnOverride.Trim();
+        return ($"/users/{sourceUpn}", $"/users/{target}");
     }
 
     /// <summary>Count source events and contacts (for the plan).</summary>

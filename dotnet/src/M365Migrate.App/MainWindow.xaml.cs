@@ -28,6 +28,7 @@ public partial class MainWindow : Window
 
         _vm.Workload = (WorkloadCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Users";
         _vm.Scope = ScopeBox.Text;
+        _vm.ScopeTargetUpn = ScopeTargetBox.Text;
         _vm.NamePrefix = NamePrefixBox.Text;
         _vm.NameSuffix = NameSuffixBox.Text;
         _vm.DisplayNameSuffix = DisplayNameSuffixBox.Text;
