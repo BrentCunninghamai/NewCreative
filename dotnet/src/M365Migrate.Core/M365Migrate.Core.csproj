@@ -10,4 +10,9 @@
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Expose internal helpers (e.g. UsersWorkload.DecodeExtUpn) to the test assembly. -->
+    <InternalsVisibleTo Include="M365Migrate.Core.Tests" />
+  </ItemGroup>
+
 </Project>

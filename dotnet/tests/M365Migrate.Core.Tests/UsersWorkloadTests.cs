@@ -47,6 +47,30 @@ public class UsersWorkloadTests
     }
 
     [Fact]
+    public void DecodeExtUpn_RecoversOriginalSourceUpn()
+    {
+        Assert.Equal("alice@contoso.onmicrosoft.com",
+            UsersWorkload.DecodeExtUpn("alice_contoso.onmicrosoft.com#EXT#@target.onmicrosoft.com"));
+        Assert.Equal("bob_smith@contoso.com",
+            UsersWorkload.DecodeExtUpn("bob_smith_contoso.com#EXT#@target.onmicrosoft.com"));
+        Assert.Null(UsersWorkload.DecodeExtUpn("alice@contoso.onmicrosoft.com")); // not #EXT#
+    }
+
+    [Fact]
+    public void Plan_FlagsCrossTenantPresentUserAsConflict()
+    {
+        var workload = new UsersWorkload(TestData.Config());
+        var users = new[] { User("jane@contoso.onmicrosoft.com") };
+        // jane is already in the target via cross-tenant sync (decoded from her #EXT# rep).
+        var crossTenant = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "jane@contoso.onmicrosoft.com" };
+
+        var planned = workload.Plan(users, existingTargetUpns: null, crossTenantIdentities: crossTenant);
+
+        Assert.Equal("conflict", planned[0].Action);
+        Assert.Contains("cross-tenant", planned[0].Reason);
+    }
+
+    [Fact]
     public void Plan_SkipsExternalExtAccountsEvenWhenMemberType()
     {
         var workload = new UsersWorkload(TestData.Config());
