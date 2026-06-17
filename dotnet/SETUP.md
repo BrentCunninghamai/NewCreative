@@ -37,6 +37,7 @@ Do this **twice** — once in the source tenant, once in the target tenant.
 | Groups     | `Group.ReadWrite.All`, `User.Read.All` |
 | Mailboxes  | `MailboxSettings.ReadWrite`, `User.Read.All` |
 | Mail (content) | `Mail.ReadWrite`, `User.Read.All` |
+| Calendar & Contacts (content) | `Calendars.ReadWrite`, `Contacts.ReadWrite`, `User.Read.All` |
 | Files      | `Files.ReadWrite.All`, `Sites.ReadWrite.All`, `User.Read.All` |
 | Teams      | `Group.ReadWrite.All`, `Team.Create`, `Channel.ReadBasic.All` |
 
@@ -117,12 +118,12 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 
 **Does:** create users; provision security/M365 groups with membership, owners,
 and dynamic rules; migrate mailbox *settings*; copy **mail content** (folders +
-messages, full-fidelity MIME, idempotent) per user; copy OneDrive/SharePoint files
-and folders (small + large via upload sessions) and reapply direct user sharing;
-enable Teams and recreate standard channels.
+messages, full-fidelity MIME, idempotent) and **calendar + contacts** per user;
+copy OneDrive/SharePoint files and folders (small + large via upload sessions) and
+reapply direct user sharing; enable Teams and recreate standard channels.
 
-**Does not yet:** calendar and contacts content (next); distribution
-lists / mail-enabled security groups (need Exchange Online); private/shared
-channels, tabs, apps; file version history and full metadata (needs the
-SharePoint Migration API). These are surfaced honestly rather than silently
+**Does not yet:** Teams channel message history (needs migration-mode teams);
+distribution lists / mail-enabled security groups (need Exchange Online);
+private/shared channels, tabs, apps; file version history and full metadata (needs
+the SharePoint Migration API). These are surfaced honestly rather than silently
 skipped.
