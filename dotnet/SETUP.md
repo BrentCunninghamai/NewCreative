@@ -113,7 +113,7 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 | Teams **skipped: target M365 group missing** | Run **Groups** first so the backing group exists. |
 | Teams **error** on enable | The target group has no owner — ensure Groups sync added owners (owners must themselves exist as migrated users). |
 | Files **error** on a huge file | Very large files use an upload session; transient failures can be re-run (re-upload is idempotent/replace). |
-| Mail **slow** / 429s | Expected for big mailboxes — Graph throttles; the client backs off and retries. Re-running is safe (already-copied messages are skipped). |
+| Mail **slow** / 429s | Expected for big mailboxes — Graph throttles; the client backs off and retries. Re-running is safe: dedup is **mailbox-wide** by `internetMessageId`, so any message already in the target (from a prior run, coexistence sync, or another migration tool — even if filed in a different folder) is skipped, not duplicated. |
 | Mail folders look different | Folders are matched by display name; tenants in different languages may not match well-known folders (Inbox, etc.). |
 
 ---
@@ -122,7 +122,8 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 
 **Does:** create users; provision security/M365 groups with membership, owners,
 and dynamic rules; migrate mailbox *settings*; copy **mail content** (folders +
-messages, full-fidelity MIME, idempotent) and **calendar + contacts** per user;
+messages, full-fidelity MIME, idempotent with **mailbox-wide** dedup so mail already
+present from another tool/sync isn't duplicated) and **calendar + contacts** per user;
 copy OneDrive/SharePoint files and folders (small + large via upload sessions) and
 reapply direct user sharing; enable Teams and recreate standard channels; and
 import Teams channel **message history** (migration mode — fresh team, original

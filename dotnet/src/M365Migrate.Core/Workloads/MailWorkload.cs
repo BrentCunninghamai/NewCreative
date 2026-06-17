@@ -9,7 +9,10 @@ namespace M365Migrate.Core.Workloads;
 /// Mail content workload: copy a user's mail folders and messages source -> target,
 /// item by item, via Microsoft Graph. Messages are copied in full-fidelity MIME
 /// (headers, body, attachments preserved). Re-runs are idempotent: a message whose
-/// internetMessageId already exists in the target folder is skipped.
+/// internetMessageId already exists *anywhere* in the target mailbox is skipped.
+/// The dedup is mailbox-wide (not per-folder), so mail already moved by another
+/// tool / coexistence sync into a different folder layout is still recognised and
+/// not duplicated.
 ///
 /// This is per-user (a source UPN), like the files workload. The target mailbox is
 /// the rewritten/affixed UPN. Requires Mail.ReadWrite application permission with
@@ -83,6 +86,21 @@ public sealed class MailWorkload
         foreach (var f in targetFolders)
             targetByPath[f.Path] = f.Id;
 
+        // Mailbox-wide set of internetMessageIds already present in the target,
+        // scanned once across ALL folders (the /messages collection spans the whole
+        // mailbox). This makes dedup robust to mail that another tool / coexistence
+        // sync already placed in a different folder layout. Skipped for a dry run.
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!dryRun)
+        {
+            foreach (var m in await target.GetAllAsync($"{targetUserRef}/messages?$select=internetMessageId&$top=100", ct))
+            {
+                var mid = m.GetStringOrNull("internetMessageId");
+                if (mid is not null)
+                    existing.Add(mid);
+            }
+        }
+
         foreach (var folder in planned)
         {
             ct.ThrowIfCancellationRequested();
@@ -119,16 +137,7 @@ public sealed class MailWorkload
                 continue;
             }
 
-            // --- internetMessageIds already in the target folder (for idempotency) ---
-            var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var m in await target.GetAllAsync($"{targetUserRef}/mailFolders/{targetFolderId}/messages?$select=internetMessageId&$top=100", ct))
-            {
-                var mid = m.GetStringOrNull("internetMessageId");
-                if (mid is not null)
-                    existing.Add(mid);
-            }
-
-            // --- copy each source message not already present ---
+            // --- copy each source message not already present anywhere in the mailbox ---
             var copied = 0;
             var skipped = 0;
             var errors = 0;
@@ -149,6 +158,10 @@ public sealed class MailWorkload
                 {
                     var mime = await source.GetBytesAsync($"{sourceUserRef}/messages/{msgId}/$value", ct);
                     await target.PostMimeMessageAsync($"{targetUserRef}/mailFolders/{targetFolderId}/messages", mime, ct);
+                    // Record so the same message isn't copied twice if it appears in
+                    // more than one source folder within this run.
+                    if (imId is not null)
+                        existing.Add(imId);
                     copied++;
                 }
                 catch (GraphException)
