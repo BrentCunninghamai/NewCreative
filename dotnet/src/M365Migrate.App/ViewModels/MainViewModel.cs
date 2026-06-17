@@ -101,6 +101,9 @@ public sealed class MainViewModel : ViewModelBase
     private string? _filesSourceRoot;
     private string? _filesTargetRoot;
     private List<PlannedTeam>? _plannedTeams;
+    private List<PlannedMailFolder>? _plannedMailFolders;
+    private string? _mailSourceRef;
+    private string? _mailTargetRef;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -193,6 +196,7 @@ public sealed class MainViewModel : ViewModelBase
         _plannedMailboxes = null;
         _plannedFiles = null;
         _plannedTeams = null;
+        _plannedMailFolders = null;
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         try
@@ -272,6 +276,23 @@ public sealed class MainViewModel : ViewModelBase
                 }
                 Status = $"Planned {_plannedTeams.Count} teams. Review, then Migrate.";
             }
+            else if (Workload == "Mail (content)")
+            {
+                var workload = new MailWorkload(config);
+                (_mailSourceRef, _mailTargetRef) = workload.ResolveUserRefs(Scope);
+                var folders = await workload.DiscoverFoldersAsync(source, _mailSourceRef, ct);
+                _plannedMailFolders = workload.Plan(folders);
+                foreach (var p in _plannedMailFolders)
+                    Rows.Add(new PlanRow
+                    {
+                        Name = p.Path,
+                        Action = p.Action,
+                        Detail = $"{p.ItemCount} items",
+                        Reason = "",
+                    });
+                Status = $"Planned {_plannedMailFolders.Count} mail folders " +
+                         $"({_plannedMailFolders.Sum(f => f.ItemCount)} items) for {Scope}. Review, then Migrate.";
+            }
             else
             {
                 var workload = new UsersWorkload(config);
@@ -314,7 +335,7 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (IsBusy) return;
         if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
-            && _plannedFiles is null && _plannedTeams is null)
+            && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null)
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -351,6 +372,13 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Teams" && _plannedTeams is not null)
             {
                 results = await new TeamsWorkload(config).MigrateAsync(target, _plannedTeams, dryRun: !Execute, ct: ct);
+            }
+            else if (Workload == "Mail (content)" && _plannedMailFolders is not null)
+            {
+                using var sourceHttp = new HttpClient();
+                var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                results = await new MailWorkload(config).MigrateAsync(
+                    source, target, _mailSourceRef!, _mailTargetRef!, _plannedMailFolders, dryRun: !Execute, ct: ct);
             }
             else if (_plannedUsers is not null)
             {

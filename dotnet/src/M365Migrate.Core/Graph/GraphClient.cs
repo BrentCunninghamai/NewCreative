@@ -130,6 +130,26 @@ public sealed class GraphClient
         return items;
     }
 
+    /// <summary>
+    /// Create a message from its raw MIME (RFC 5322) content. Graph expects the MIME
+    /// base64-encoded with Content-Type text/plain. Returns the created message JSON.
+    /// </summary>
+    public async Task<JsonElement> PostMimeMessageAsync(string url, byte[] mime, CancellationToken ct = default)
+    {
+        var base64 = Convert.ToBase64String(mime);
+        using var response = await SendAsync(HttpMethod.Post, url, () =>
+        {
+            var content = new StringContent(base64);
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            return content;
+        }, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(text))
+            return default;
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.Clone();
+    }
+
     /// <summary>POST a JSON body and return the parsed response (or a JSON null if empty).</summary>
     public async Task<JsonElement> PostJsonAsync(string url, object body, CancellationToken ct = default)
     {

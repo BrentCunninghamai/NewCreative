@@ -42,10 +42,11 @@
                     <ComboBoxItem Content="Groups" />
                     <ComboBoxItem Content="Mailboxes" />
                     <ComboBoxItem Content="Files (OneDrive)" />
+                    <ComboBoxItem Content="Mail (content)" />
                     <ComboBoxItem Content="Teams" />
                 </ComboBox>
 
-                <TextBlock Text="Files scope — source user UPN (OneDrive only)" Margin="0,8,0,0" />
+                <TextBlock Text="Scope — source user UPN (for Files and Mail)" Margin="0,8,0,0" />
                 <TextBox x:Name="ScopeBox" />
 
                 <TextBlock Text="Name prefix (optional, e.g. contoso-)" Margin="0,8,0,0" />
