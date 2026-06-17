@@ -10,6 +10,7 @@ public sealed class PlannedUser
     public string SourceUpn { get; set; } = "";
     public string TargetUpn { get; set; } = "";
     public string? DisplayName { get; set; }
+    public string UserType { get; set; } = "Member";
     public string Action { get; set; } = "create";
     public string? Reason { get; set; }
 

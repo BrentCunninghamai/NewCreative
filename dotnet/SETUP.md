@@ -106,6 +106,8 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 | Test connections fails with **401** | Wrong tenant id / client id / secret, or secret expired. Re-copy the secret value. |
 | Test connections fails with **403** | Admin consent not granted, or missing permission. Re-run **Grant admin consent**. |
 | Plan shows users as **conflict** | The target UPN already exists — expected when re-running or for shared identities. |
+| Plan shows **Name = Detail** (UPN unchanged) | The Source primary domain doesn't match the users' actual UPN domain, so no rewrite happened. Use the real UPN domain (e.g. `contoso.onmicrosoft.com`), **not** the `…mail.onmicrosoft.com` routing domain. |
+| Lots of `…#EXT#@…` rows | Those are external/B2B guest identities; with **Skip guest users** ticked they're skipped (they can't be recreated as normal users). |
 | Mailbox users **skipped** | The user has no Exchange mailbox, or the target account doesn't exist yet (run Users first). |
 | Teams **skipped: target M365 group missing** | Run **Groups** first so the backing group exists. |
 | Teams **error** on enable | The target group has no owner — ensure Groups sync added owners (owners must themselves exist as migrated users). |
