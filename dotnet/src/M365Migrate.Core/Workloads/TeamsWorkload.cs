@@ -1,6 +1,7 @@
 using System.Text.Json;
 using M365Migrate.Core.Configuration;
 using M365Migrate.Core.Graph;
+using M365Migrate.Core.Mapping;
 using M365Migrate.Core.Models;
 
 namespace M365Migrate.Core.Workloads;
@@ -14,7 +15,9 @@ namespace M365Migrate.Core.Workloads;
 /// </summary>
 public sealed class TeamsWorkload
 {
-    public TeamsWorkload(MigrationConfig config) => _ = config;
+    private readonly MigrationConfig _config;
+
+    public TeamsWorkload(MigrationConfig config) => _config = config;
 
     /// <summary>True if a Graph group payload represents a Teams-enabled M365 group.</summary>
     public static bool GroupIsTeam(JsonElement group)
@@ -99,15 +102,20 @@ public sealed class TeamsWorkload
         var planned = new List<PlannedTeam>();
         foreach (var team in teams)
         {
-            var nickname = team.MailNickname;
+            var sourceNickname = team.MailNickname;
+            // Match the backing group by its target nickname (prefix/suffix applied),
+            // the same name the groups workload provisions.
+            var targetNickname = string.IsNullOrEmpty(sourceNickname)
+                ? sourceNickname
+                : TargetNaming.TargetMailNickname(sourceNickname, _config);
             string action;
             string? reason;
-            if (string.IsNullOrEmpty(nickname))
+            if (string.IsNullOrEmpty(sourceNickname))
             {
                 action = "skip";
                 reason = "team has no mailNickname";
             }
-            else if (!existing.ContainsKey(nickname))
+            else if (!existing.ContainsKey(targetNickname!))
             {
                 action = "skip";
                 reason = "target M365 group missing — run groups sync first";
@@ -121,7 +129,7 @@ public sealed class TeamsWorkload
             planned.Add(new PlannedTeam
             {
                 SourceId = team.Id,
-                MailNickname = nickname,
+                MailNickname = targetNickname,
                 DisplayName = team.DisplayName,
                 Action = action,
                 Reason = reason,

@@ -17,10 +17,7 @@ public sealed class MailboxesWorkload
 
     public MailboxesWorkload(MigrationConfig config) => _config = config;
 
-    private string Rewrite(string upn) =>
-        _config.Options.RewriteUpnDomain
-            ? UpnMapper.Rewrite(upn, _config.Source.PrimaryDomain, _config.Target.PrimaryDomain)
-            : upn;
+    private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
     /// <summary>Read mailbox settings for every mailbox-enabled source user.</summary>
     public async Task<List<SourceMailbox>> DiscoverAsync(GraphClient source, CancellationToken ct = default)

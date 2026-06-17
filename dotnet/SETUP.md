@@ -81,6 +81,19 @@ executable — no .NET install required.
 
 ---
 
+## Merging multiple source tenants into one target
+
+Use **one target app registration** (single-tenant, in the target) and **one app
+registration per source tenant**. Run the flow once per source: keep the Target
+fields the same and change only the Source fields each time.
+
+Because several sources land in the same target, identities can collide (two
+sources each with `john@…`, or a `sales` group in both). Set a per-source **Name
+prefix** (or suffix) — e.g. `contoso-` for one source, `northwind-` for the next.
+It tags each migrated user's UPN local-part (`contoso-john@target`) and each group
+mailNickname (`contoso-sales`), so nothing overwrites another source. Leave it
+blank for a single-source migration.
+
 ## 4. Troubleshooting
 
 | Symptom | Cause / fix |

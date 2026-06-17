@@ -19,10 +19,7 @@ public sealed class FilesWorkload
 
     public FilesWorkload(MigrationConfig config) => _config = config;
 
-    private string Rewrite(string upn) =>
-        _config.Options.RewriteUpnDomain
-            ? UpnMapper.Rewrite(upn, _config.Source.PrimaryDomain, _config.Target.PrimaryDomain)
-            : upn;
+    private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
     /// <summary>Return the (source, target) drive root paths for a user or a site.</summary>
     public (string Source, string Target) ResolveDriveRoots(string? user = null, string? site = null, string? targetSite = null)

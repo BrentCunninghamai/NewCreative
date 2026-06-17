@@ -54,10 +54,7 @@ public sealed class UsersWorkload
         return set;
     }
 
-    private string TargetUpn(string sourceUpn) =>
-        _config.Options.RewriteUpnDomain
-            ? UpnMapper.Rewrite(sourceUpn, _config.Source.PrimaryDomain, _config.Target.PrimaryDomain)
-            : sourceUpn;
+    private string TargetUpn(string sourceUpn) => TargetNaming.TargetUpn(sourceUpn, _config);
 
     /// <summary>Build a migration plan without writing anything.</summary>
     public List<PlannedUser> Plan(IEnumerable<SourceUser> users, ISet<string>? existingTargetUpns = null)
