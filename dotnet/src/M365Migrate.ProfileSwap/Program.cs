@@ -85,8 +85,9 @@ static int SwapCmd(string[] args)
 
     var backupDir = GetOpt(args, "--backup")
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "m365-migrate", "profileswap");
-    var backup = ProfileManager.Execute(plan, backupDir);
-    Console.WriteLine($"Done. Registry backup: {backup}");
+    var result = ProfileManager.Execute(plan, backupDir);
+    Console.WriteLine($"Done. Registry backup: {result.BackupPath}");
+    Console.WriteLine($"ACL grant: {result.AclSummary}");
     Console.WriteLine("Have the user sign out and back in to the new account to load the migrated profile.");
     return 0;
 }

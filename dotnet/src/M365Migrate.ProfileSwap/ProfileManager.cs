@@ -12,6 +12,9 @@ public sealed record LocalProfile(string Sid, string? Account, string ProfilePat
     public bool IsSystem => Sid is "S-1-5-18" or "S-1-5-19" or "S-1-5-20" || Sid.StartsWith("S-1-5-80");
 }
 
+/// <summary>The outcome of an applied swap.</summary>
+public sealed record SwapResult(string BackupPath, string AclSummary);
+
 /// <summary>The change a swap would make, for review before anything is written.</summary>
 public sealed record SwapPlan(LocalProfile OldProfile, string NewSid, string? NewAccount)
 {
@@ -100,30 +103,48 @@ public static class ProfileManager
                 $"Could not resolve new account '{newAccountOrSid}'. Have the user sign into the new account once " +
                 "on this PC so its SID exists locally, then retry.");
 
+        // The new account must already have a profile (i.e. it has signed in once). Without
+        // this its ProfileList key is absent; creating one would leave a bogus/incomplete
+        // entry. Enforce the precondition before anything is changed.
+        if (!ProfileKeyExists(newSid))
+            throw new InvalidOperationException(
+                $"The new account '{newAccountOrSid}' ({newSid}) has no local profile yet. Sign into it once on " +
+                "this PC (a fresh profile is created), then run the swap to re-point it to the old profile.");
+
         return new SwapPlan(profile, newSid, LooksLikeSid(newAccountOrSid) ? TryResolveAccount(newSid) : newAccountOrSid);
     }
 
+    private static bool ProfileKeyExists(string sid)
+    {
+        using var k = Registry.LocalMachine.OpenSubKey($@"{ProfileListKey}\{sid}");
+        return k is not null;
+    }
+
     /// <summary>
-    /// Apply the swap: back up ProfileList, grant the new account Full Control on the profile
-    /// folder, and point the new SID's ProfileImagePath at the existing profile. Returns the
-    /// backup file path. Caller must confirm; this is destructive.
+    /// Apply the swap: back up ProfileList, grant the new account Full Control across the whole
+    /// profile tree, and point the new SID's existing ProfileImagePath at the old profile.
+    /// Caller must confirm; this is destructive.
     /// </summary>
-    public static string Execute(SwapPlan plan, string backupDirectory)
+    public static SwapResult Execute(SwapPlan plan, string backupDirectory)
     {
         if (!IsElevated())
             throw new InvalidOperationException("Run as Administrator — this changes HKLM and NTFS permissions.");
+
+        // Open the new SID's existing ProfileList key for write. Never CreateSubKey here: if
+        // it's absent the account hasn't signed in, and creating a bogus entry (after we'd
+        // already changed ACLs) would corrupt ProfileList. Fail before any change instead.
+        using var key = Registry.LocalMachine.OpenSubKey($@"{ProfileListKey}\{plan.NewSid}", writable: true)
+            ?? throw new InvalidOperationException(
+                $"The new account ({plan.NewSid}) has no ProfileList entry — sign into it once first. Nothing changed.");
 
         Directory.CreateDirectory(backupDirectory);
         var backup = Path.Combine(backupDirectory, $"ProfileList-backup-{DateTime.Now:yyyyMMdd-HHmmss}.reg");
         BackupProfileList(backup);
 
-        GrantFullControl(plan.OldProfile.ProfilePath, plan.NewSid);
-
-        using var key = Registry.LocalMachine.CreateSubKey($@"{ProfileListKey}\{plan.NewSid}")
-            ?? throw new InvalidOperationException("Could not open the new SID's ProfileList key.");
+        var aclSummary = GrantFullControl(plan.OldProfile.ProfilePath, plan.NewSid);
         key.SetValue("ProfileImagePath", plan.OldProfile.ProfilePath, RegistryValueKind.ExpandString);
 
-        return backup;
+        return new SwapResult(backup, aclSummary);
     }
 
     private static void BackupProfileList(string file)
@@ -140,19 +161,36 @@ public static class ProfileManager
             throw new InvalidOperationException("Failed to back up the ProfileList registry key — aborting.");
     }
 
-    private static void GrantFullControl(string profilePath, string sid)
+    /// <summary>
+    /// Grant the SID Full Control across the entire profile tree using icacls, so child items
+    /// with protected/non-inheriting ACLs are also updated (a root-only inheritable ACE would
+    /// miss them). <c>/T</c> recurses, <c>/C</c> continues past per-file failures and reparse
+    /// points (legacy junctions like "Application Data"). Returns icacls' summary line.
+    /// </summary>
+    private static string GrantFullControl(string profilePath, string sid)
     {
         if (!Directory.Exists(profilePath))
             throw new DirectoryNotFoundException($"Profile folder not found: {profilePath}");
 
-        var di = new DirectoryInfo(profilePath);
-        var sec = di.GetAccessControl();
-        sec.AddAccessRule(new FileSystemAccessRule(
-            new SecurityIdentifier(sid),
-            FileSystemRights.FullControl,
-            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-            PropagationFlags.None,
-            AccessControlType.Allow));
-        di.SetAccessControl(sec);
+        var psi = new ProcessStartInfo("icacls.exe",
+            $"\"{profilePath}\" /grant *{sid}:(OI)(CI)F /T /C")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Could not start icacls.exe.");
+        var stdout = p.StandardOutput.ReadToEnd();
+        var stderr = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+
+        var summary = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim()).LastOrDefault(l => l.Length > 0) ?? "";
+        // With /C icacls returns non-zero if any item failed; that's expected (locked files).
+        // Only treat it as fatal if nothing was processed at all.
+        if (p.ExitCode != 0 && !summary.StartsWith("Successfully processed", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("icacls failed: " + (stderr.Trim().Length > 0 ? stderr.Trim() : summary));
+        return summary;
     }
 }

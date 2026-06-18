@@ -38,10 +38,14 @@ M365Migrate.ProfileSwap.exe swap --old "OLDDOMAIN\jdoe" --new "AzureAD\jane@targ
 
 ## What it does
 
-1. Backs up `HKLM\…\ProfileList` to a `.reg` file.
-2. Grants the new account **Full Control** on the existing profile folder (recursive).
-3. Sets the new SID's `ProfileImagePath` to the existing profile folder, so the next sign-in
-   loads the migrated profile.
+1. Verifies the **new account already has a local profile** (it has signed in once); if not,
+   it stops with a clear message and changes nothing.
+2. Backs up `HKLM\…\ProfileList` to a `.reg` file.
+3. Grants the new account **Full Control across the whole profile tree** via `icacls /T /C`
+   (so child items with their own/non-inheriting permissions are updated too; locked files and
+   junctions are skipped and reported, not fatal).
+4. Sets the new SID's existing `ProfileImagePath` to the old profile folder, so the next
+   sign-in loads the migrated profile.
 
 Then the user signs out and back in to the new account.
 
