@@ -12,7 +12,7 @@ public sealed class SourceUser
         "id", "userPrincipalName", "displayName", "givenName", "surname", "mail",
         "jobTitle", "department", "officeLocation", "mobilePhone", "accountEnabled",
         "userType", "usageLocation", "assignedLicenses",
-        "onPremisesSyncEnabled", "onPremisesImmutableId",
+        "onPremisesSyncEnabled", "onPremisesImmutableId", "proxyAddresses",
     };
 
     /// <summary>Expanded alongside the user so we learn each user's manager in one request.</summary>
@@ -39,6 +39,8 @@ public sealed class SourceUser
     public bool OnPremisesSyncEnabled { get; set; }
     /// <summary>The on-prem anchor (immutableId / ms-DS-ConsistencyGuid), when hybrid-synced.</summary>
     public string? OnPremisesImmutableId { get; set; }
+    /// <summary>All SMTP addresses (primary + aliases), used to match a target by any shared address.</summary>
+    public List<string> ProxyAddresses { get; set; } = new();
 
     public static SourceUser FromGraph(JsonElement data)
     {
@@ -71,6 +73,26 @@ public sealed class SourceUser
                 user.AssignedSkuIds.Add(sku);
         }
 
+        foreach (var proxy in data.GetArrayOrEmpty("proxyAddresses"))
+        {
+            var addr = SmtpProxyAddress(proxy.GetString());
+            if (addr is not null)
+                user.ProxyAddresses.Add(addr);
+        }
+
         return user;
+    }
+
+    /// <summary>
+    /// Return the email address from an SMTP proxyAddresses entry ("SMTP:primary@x" /
+    /// "smtp:alias@x"), or null for non-SMTP schemes (SIP:, X500:, …) which must not be
+    /// treated as email addresses for matching.
+    /// </summary>
+    public static string? SmtpProxyAddress(string? proxy)
+    {
+        if (string.IsNullOrEmpty(proxy)) return null;
+        var colon = proxy.IndexOf(':');
+        if (colon < 0) return proxy; // unprefixed (e.g. the mail attribute) — treat as an address
+        return proxy[..colon].Equals("smtp", StringComparison.OrdinalIgnoreCase) ? proxy[(colon + 1)..] : null;
     }
 }
