@@ -28,6 +28,9 @@ dotnet/
 Ported from the Python engine, staged discover → plan → migrate with a dry-run
 default. **All workloads are now ported** (full parity with the Python engine):
 
+- **User mapping (preview)** — scan both tenants and build a source→target identity
+  map (CSV override → cross-tenant/`#EXT#` → mail/SMTP → UPN rewrite), exported as an
+  editable CSV. Read-only; the backbone for bulk, ShareGate-style migrations.
 - **Users** — discover, plan (conflict + guest filtering), migrate.
 - **Groups** — discover, plan, sync membership + ownership; dynamic groups
   recreated with their membership rule.

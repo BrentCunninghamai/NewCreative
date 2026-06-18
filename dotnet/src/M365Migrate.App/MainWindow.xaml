@@ -38,6 +38,7 @@
 
                 <TextBlock Text="Workload" Style="{StaticResource SectionHeader}" />
                 <ComboBox x:Name="WorkloadCombo" SelectedIndex="0">
+                    <ComboBoxItem Content="User mapping (preview)" />
                     <ComboBoxItem Content="Users" />
                     <ComboBoxItem Content="Groups" />
                     <ComboBoxItem Content="Mailboxes" />
