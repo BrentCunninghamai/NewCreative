@@ -82,6 +82,10 @@ executable — no .NET install required.
 2. Fill in **Source tenant** and **Target tenant**: Tenant ID, App (client) ID,
    Client secret, and Primary domain (e.g. `contoso.onmicrosoft.com` and
    `fabrikam.onmicrosoft.com`).
+   - **Tip — save a profile:** type a name in **Profile** and click **Save profile** to
+     store these inputs (one per source tenant), then **Load profile** next time. Client
+     secrets are encrypted at rest with **Windows DPAPI** (only your Windows user account
+     on this PC can decrypt them); profiles live in `%LOCALAPPDATA%\m365-migrate\profiles`.
 3. Click **Test connections** — you should see both organizations' names. If not,
    fix the registration/consent before continuing (see Troubleshooting).
    Then click **Pre-flight check** — it confirms, per tenant, exactly which required

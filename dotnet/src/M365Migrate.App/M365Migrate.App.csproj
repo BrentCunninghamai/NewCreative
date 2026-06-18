@@ -12,4 +12,9 @@
     <ProjectReference Include="../M365Migrate.Core/M365Migrate.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Windows DPAPI for encrypting saved profile secrets at rest. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
 </Project>

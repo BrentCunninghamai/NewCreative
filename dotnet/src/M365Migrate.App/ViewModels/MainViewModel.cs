@@ -59,7 +59,7 @@ public sealed class MainViewModel : ViewModelBase
     public string Status
     {
         get => _status;
-        private set => SetField(ref _status, value);
+        set => SetField(ref _status, value);
     }
 
     private CancellationTokenSource? _cts;

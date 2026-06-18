@@ -1,6 +1,10 @@
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using M365Migrate.App.ViewModels;
+using M365Migrate.Core.Configuration;
 
 namespace M365Migrate.App;
 
@@ -8,10 +12,104 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
 
+    private static readonly string ProfilesDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "m365-migrate", "profiles");
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _vm;
+        RefreshProfiles();
+    }
+
+    // --- Saved profiles (secrets encrypted at rest with Windows DPAPI, current user) ---
+
+    private static string Protect(string s) =>
+        Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(s), null, DataProtectionScope.CurrentUser));
+
+    private static string Unprotect(string s) =>
+        Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(s), null, DataProtectionScope.CurrentUser));
+
+    private void RefreshProfiles()
+    {
+        var selected = ProfileCombo.Text;
+        ProfileCombo.ItemsSource = ProfileStore.List(ProfilesDir);
+        ProfileCombo.Text = selected;
+    }
+
+    private void OnSaveProfileClick(object sender, RoutedEventArgs e)
+    {
+        var name = ProfileCombo.Text?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            _vm.Status = "Enter a profile name first.";
+            return;
+        }
+        try
+        {
+            var profile = new MigrationProfile
+            {
+                Name = name,
+                SourceTenantId = SourceTenantId.Text,
+                SourceClientId = SourceClientId.Text,
+                SourceClientSecret = SourceClientSecret.Password,
+                SourceDomain = SourceDomain.Text,
+                TargetTenantId = TargetTenantId.Text,
+                TargetClientId = TargetClientId.Text,
+                TargetClientSecret = TargetClientSecret.Password,
+                TargetDomain = TargetDomain.Text,
+                RewriteUpn = RewriteUpnCheck.IsChecked == true,
+                SkipGuests = SkipGuestsCheck.IsChecked == true,
+                AssignLicenses = AssignLicensesCheck.IsChecked == true,
+                DefaultUsageLocation = UsageLocationBox.Text,
+                NamePrefix = NamePrefixBox.Text,
+                NameSuffix = NameSuffixBox.Text,
+                DisplayNameSuffix = DisplayNameSuffixBox.Text,
+            };
+            ProfileStore.Save(ProfilesDir, profile, Protect);
+            RefreshProfiles();
+            ProfileCombo.Text = name;
+            _vm.Status = $"Saved profile “{name}”. Secrets are encrypted (DPAPI, current Windows user).";
+        }
+        catch (Exception ex)
+        {
+            _vm.Status = "Couldn't save profile: " + ex.Message;
+        }
+    }
+
+    private void OnLoadProfileClick(object sender, RoutedEventArgs e)
+    {
+        var name = ProfileCombo.Text?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            _vm.Status = "Pick a profile to load.";
+            return;
+        }
+        try
+        {
+            var p = ProfileStore.Load(ProfilesDir, name, Unprotect);
+            SourceTenantId.Text = p.SourceTenantId;
+            SourceClientId.Text = p.SourceClientId;
+            SourceClientSecret.Password = p.SourceClientSecret;
+            SourceDomain.Text = p.SourceDomain;
+            TargetTenantId.Text = p.TargetTenantId;
+            TargetClientId.Text = p.TargetClientId;
+            TargetClientSecret.Password = p.TargetClientSecret;
+            TargetDomain.Text = p.TargetDomain;
+            RewriteUpnCheck.IsChecked = p.RewriteUpn;
+            SkipGuestsCheck.IsChecked = p.SkipGuests;
+            AssignLicensesCheck.IsChecked = p.AssignLicenses;
+            UsageLocationBox.Text = p.DefaultUsageLocation;
+            NamePrefixBox.Text = p.NamePrefix;
+            NameSuffixBox.Text = p.NameSuffix;
+            DisplayNameSuffixBox.Text = p.DisplayNameSuffix;
+            _vm.Status = $"Loaded profile “{name}”.";
+        }
+        catch (Exception ex)
+        {
+            _vm.Status = "Couldn't load profile: " + ex.Message;
+        }
     }
 
     /// <summary>Copy the form fields (including PasswordBoxes) into the view model.</summary>
