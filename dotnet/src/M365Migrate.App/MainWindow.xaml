@@ -69,6 +69,7 @@
                 <CheckBox x:Name="ExecuteCheck" Content="Execute (unchecked = dry run)" Margin="0,0,0,8" />
 
                 <Button x:Name="TestButton" Content="Test connections" Height="30" Margin="0,8,0,2" Click="OnTestClick" />
+                <Button x:Name="PreflightButton" Content="Pre-flight check (permissions consented?)" Height="28" Margin="0,2" Click="OnPreflightClick" />
                 <Button x:Name="SetupButton" Content="App setup (permissions &amp; 1-click consent)" Height="28" Margin="0,2" Click="OnSetupClick" />
                 <Button x:Name="PlanButton" Content="Discover &amp; Plan" Height="34" Margin="0,4" Click="OnPlanClick" />
                 <Button x:Name="MigrateButton" Content="Migrate" Height="34" Margin="0,4" Click="OnMigrateClick" />

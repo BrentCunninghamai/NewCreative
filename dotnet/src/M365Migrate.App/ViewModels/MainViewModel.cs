@@ -276,6 +276,59 @@ public sealed class MainViewModel : ViewModelBase
             : $"  {srcText}  →  {tgtText}.";
     }
 
+    /// <summary>
+    /// Pre-flight readiness: for each tenant, acquire a token and verify which required Graph
+    /// application permissions are admin-consented (from the token's roles claim), so missing
+    /// consent is caught before a run instead of as a mid-run 403.
+    /// </summary>
+    public async Task PreflightAsync()
+    {
+        if (IsBusy) return;
+        var error = Validate();
+        if (error is not null) { Status = error; return; }
+
+        IsBusy = true;
+        Rows.Clear();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        try
+        {
+            var config = BuildConfig();
+            var required = GraphSetup.Permissions.Select(p => p.Name).ToList();
+            var totalMissing = 0;
+            foreach (var (label, tenant) in new[] { ("Source", config.Source), ("Target", config.Target) })
+            {
+                Status = $"Pre-flight: acquiring {label} token...";
+                try
+                {
+                    var token = await TokenProviders.ForTenant(tenant)(ct);
+                    var result = PreflightChecker.Check(token, required);
+                    totalMissing += result.Missing.Count;
+                    Rows.Add(new PlanRow
+                    {
+                        Name = $"{label} — {tenant.TenantId}",
+                        Action = result.AllGranted ? "ready" : "missing",
+                        Detail = $"{result.Granted.Count}/{required.Count} consented",
+                        Reason = result.Missing.Count == 0 ? "" : "missing: " + string.Join(", ", result.Missing),
+                    });
+                }
+                catch (Exception ex)
+                {
+                    totalMissing++;
+                    Rows.Add(new PlanRow { Name = $"{label} — {tenant.TenantId}", Action = "error", Detail = "token/auth failed", Reason = ex.Message });
+                }
+            }
+            WriteReport("preflight");
+            Status = totalMissing == 0
+                ? "Pre-flight passed — both tenants authenticate and all permissions are consented. Ready to migrate."
+                : $"Pre-flight found issues ({totalMissing}). Fix consent with “App setup”, then re-check. " +
+                  "Note: this verifies admin-consented permissions; some workloads still need the right license on each user.";
+        }
+        catch (OperationCanceledException) { Status = "Pre-flight canceled."; }
+        catch (Exception ex) { Status = "Pre-flight error: " + ex.Message; }
+        finally { _cts.Dispose(); _cts = null; IsBusy = false; }
+    }
+
     /// <summary>Connect to both tenants, discover the source, and build a plan.</summary>
     public async Task PlanAsync()
     {
