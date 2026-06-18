@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
+using System.Windows.Data;
+using System.Windows.Media;
 using M365Migrate.App.Logging;
 using M365Migrate.Core.Auth;
 using M365Migrate.Core.Configuration;
@@ -59,7 +62,27 @@ public sealed class MainViewModel : ViewModelBase
     public string Status
     {
         get => _status;
-        set => SetField(ref _status, value);
+        set
+        {
+            if (SetField(ref _status, value))
+                OnPropertyChanged(nameof(StatusBrush));
+        }
+    }
+
+    /// <summary>Colour the status line by severity (red error / amber warning / green done).</summary>
+    public Brush StatusBrush
+    {
+        get
+        {
+            var s = _status.ToLowerInvariant();
+            if (s.Contains("error") || s.Contains("failed") || s.Contains("missing") || s.Contains("⚠"))
+                return Brushes.Firebrick;
+            if (s.Contains("canceled") || s.Contains("skipped") || s.Contains("issue") || s.Contains("conflict"))
+                return Brushes.DarkGoldenrod;
+            if (s.Contains("complete") || s.Contains("passed") || s.Contains("done") || s.Contains("ready") || s.Contains("saved") || s.Contains("loaded"))
+                return Brushes.ForestGreen;
+            return Brushes.Black;
+        }
     }
 
     private CancellationTokenSource? _cts;
@@ -75,6 +98,40 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     public ObservableCollection<PlanRow> Rows { get; } = new();
+
+    /// <summary>Filtered/searchable view of <see cref="Rows"/> bound by the grid.</summary>
+    public ICollectionView RowsView { get; }
+
+    private string _filterText = "";
+    /// <summary>Free-text filter over the results grid (name / action / detail / reason).</summary>
+    public string FilterText
+    {
+        get => _filterText;
+        set
+        {
+            if (SetField(ref _filterText, value))
+                RowsView.Refresh();
+        }
+    }
+
+    public MainViewModel()
+    {
+        RowsView = CollectionViewSource.GetDefaultView(Rows);
+        RowsView.Filter = RowMatchesFilter;
+    }
+
+    private bool RowMatchesFilter(object item)
+    {
+        if (string.IsNullOrWhiteSpace(_filterText))
+            return true;
+        if (item is not PlanRow r)
+            return true;
+        var q = _filterText.Trim();
+        return (r.Name?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.Action?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.Detail?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (r.Reason?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
 
     /// <summary>Where plan/result CSV reports are written.</summary>
     public string ReportsDirectory { get; } = Path.Combine(
