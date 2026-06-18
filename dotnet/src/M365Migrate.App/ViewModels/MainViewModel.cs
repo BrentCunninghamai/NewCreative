@@ -305,11 +305,12 @@ public sealed class MainViewModel : ViewModelBase
                 }
                 catch (GraphException ex)
                 {
-                    // Reading the source OneDrive failed. A 404 means no drive (skip cleanly);
-                    // anything else (notSupported / 403 / ...) is a fixable issue we surface
-                    // with a hint rather than silently skipping a user who has files.
-                    _plannedFiles = new List<PlannedDriveItem>();
+                    // Reading the source OneDrive failed. A 404 means no drive: record an
+                    // empty, valid plan so Migrate is a clean no-op. Anything else
+                    // (notSupported / 403 / ...) is a fixable failure — leave the plan NULL
+                    // so Migrate refuses to run and can't mask it as "0 items processed".
                     var notProvisioned = FilesWorkload.IsDriveNotProvisioned(ex);
+                    _plannedFiles = notProvisioned ? new List<PlannedDriveItem>() : null;
                     var hint = FilesWorkload.DriveErrorHint(ex);
                     Rows.Add(new PlanRow
                     {
