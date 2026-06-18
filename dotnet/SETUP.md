@@ -117,6 +117,20 @@ replaces), and a per-user problem (e.g. a user with no OneDrive, or a mailbox st
 mid-move) is recorded and skipped without stopping the batch. **Cancel** stops between
 users; already-processed users stay done.
 
+### Pre-sync to ~97%, then a small cutover (delta)
+
+Because the tool only **reads** the source, **users keep working there** while you migrate.
+Run the bulk workloads as repeated **pre-sync passes** in the days before cutover:
+
+- **Mail** skips messages already in the target (mailbox-wide `internetMessageId` dedup).
+- **OneDrive** is **delta-aware** — a file already in the target with the same path **and
+  matching content hash** (quickXorHash) is skipped; an edited file (even one that keeps the
+  same byte size) has a different hash and is re-copied. Each pass only moves what's new or
+  changed, and the plan/result shows a **`synced%`** per user.
+
+Run it daily; the `synced%` climbs toward ~100%. On cutover day, the final pass has very
+little left (just the latest changes), so the window where users must stop is short.
+
 ### Recommended order (later workloads depend on earlier ones)
 
 1. **Users** — so accounts exist in the target.
