@@ -80,6 +80,45 @@ public class UserMatchingWorkloadTests
     }
 
     [Fact]
+    public void Match_MatchesNativeByAliasWhenUpnAndPrimaryDiffer()
+    {
+        // Paul: source UPN/primary differ from the target's, but a shared alias links them to
+        // the native target account. Should match (mail), native, content-ready — not unmatched.
+        var src = new SourceUser
+        {
+            Id = "s-paul",
+            UserPrincipalName = "PaulE@net1.com",
+            DisplayName = "Paul",
+            Mail = "paule@net1.com",
+            ProxyAddresses = { "paule@net1.com", "paulenc@net1.com" },
+        };
+        var targets = new[]
+        {
+            new TargetUserRec("t-paul", "paul.encarnacao@lesakatechnologies.onmicrosoft.com",
+                "paule@lesaka.tech", new[] { "paule@lesaka.tech", "paulenc@net1.com" }, "Member"),
+        };
+
+        var m = _wl.Match(new[] { src }, targets).Single();
+        Assert.Equal("mail", m.Method);
+        Assert.Equal("t-paul", m.TargetId);
+        Assert.True(m.ContentReady);
+    }
+
+    [Fact]
+    public void Match_PrefersNativeOverGuestWhenBothShareAnAlias()
+    {
+        var src = new SourceUser { Id = "s", UserPrincipalName = "x@net1.com", Mail = "x@net1.com", ProxyAddresses = { "x@net1.com" } };
+        var targets = new[]
+        {
+            new TargetUserRec("t-guest", "x_net1.com#EXT#@lesaka.onmicrosoft.com", null, new[] { "x@net1.com" }, null),
+            new TargetUserRec("t-native", "x@lesaka.tech", "x@net1.com", new[] { "x@net1.com" }, "Member"),
+        };
+        var m = _wl.Match(new[] { src }, targets).Single();
+        Assert.Equal("t-native", m.TargetId);
+        Assert.False(m.TargetIsGuest);
+    }
+
+    [Fact]
     public void Match_FlagsGuestByUserTypeEvenWithNormalUpn()
     {
         // A target Guest object with a normal-looking UPN (no #EXT#) is still not a content target.

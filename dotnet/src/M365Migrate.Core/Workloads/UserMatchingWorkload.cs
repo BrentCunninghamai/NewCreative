@@ -58,8 +58,9 @@ public sealed record UserMatch(
 /// <summary>
 /// Builds a source→target user mapping for the whole tenant — the backbone of a
 /// ShareGate-style bulk migration. For each source user it picks the best target match
-/// by precedence: explicit CSV override → same-UPN native account → cross-tenant/B2B
-/// (#EXT#) identity → primary mail / SMTP proxy → UPN domain rewrite. A match to a #EXT#
+/// by precedence: explicit CSV override → same-UPN native account → any shared SMTP
+/// address (primary or alias, native preferred) → cross-tenant/B2B (#EXT#) identity →
+/// UPN domain rewrite. A match to a guest (#EXT# or userType Guest)
 /// guest rep is flagged (TargetIsGuest) — present, but not a content destination. Unmatched
 /// users are reported so they can be created or mapped by hand.
 /// </summary>
@@ -86,6 +87,14 @@ public sealed class UserMatchingWorkload
         var byUpn = new Dictionary<string, TargetUserRec>(StringComparer.OrdinalIgnoreCase);
         var byMail = new Dictionary<string, TargetUserRec>(StringComparer.OrdinalIgnoreCase);
         var byDecodedExt = new Dictionary<string, TargetUserRec>(StringComparer.OrdinalIgnoreCase);
+
+        // When two targets share an address, prefer a native account over a guest rep.
+        void AddMail(string key, TargetUserRec t)
+        {
+            if (!byMail.TryGetValue(key, out var existing) || (existing.IsGuest && !t.IsGuest))
+                byMail[key] = t;
+        }
+
         foreach (var t in targets)
         {
             if (!string.IsNullOrEmpty(t.Upn))
@@ -96,9 +105,9 @@ public sealed class UserMatchingWorkload
                     byDecodedExt[decoded] = t;
             }
             if (t.Mail is not null)
-                byMail[t.Mail] = t;
+                AddMail(t.Mail, t);
             foreach (var smtp in t.SmtpAddresses)
-                byMail[smtp] = t;
+                AddMail(smtp, t);
         }
 
         var result = new List<UserMatch>();
@@ -127,13 +136,15 @@ public sealed class UserMatchingWorkload
                 // cross-tenant #EXT# guest rep.
                 hit = sameUpn; method = "upn";
             }
+            else if (TryMatchByAddress(s, byMail, out var byAddr))
+            {
+                // Any source address (primary mail OR an alias) equals a target address — catches
+                // a native account reachable by a shared proxy even when UPN/primary differ.
+                hit = byAddr!; method = "mail";
+            }
             else if (byDecodedExt.TryGetValue(s.UserPrincipalName, out var ext))
             {
                 hit = ext; method = "cross-tenant";
-            }
-            else if (s.Mail is not null && byMail.TryGetValue(s.Mail, out var bymail))
-            {
-                hit = bymail; method = "mail";
             }
             else if (byUpn.TryGetValue(TargetNaming.TargetUpn(s.UserPrincipalName, _config), out var rewritten))
             {
@@ -154,6 +165,26 @@ public sealed class UserMatchingWorkload
             result.Add(new UserMatch(s.Id, s.UserPrincipalName, s.Mail, hit.Id, hit.Upn, method, note, targetIsGuest));
         }
         return result;
+    }
+
+    /// <summary>Match a source user by any of its SMTP addresses (primary mail or an alias)
+    /// against the target address index. Prefers a native (non-guest) target if both exist.</summary>
+    private static bool TryMatchByAddress(
+        SourceUser s, IReadOnlyDictionary<string, TargetUserRec> byMail, out TargetUserRec? hit)
+    {
+        hit = null;
+        TargetUserRec? guestFallback = null;
+        var addresses = new List<string>();
+        if (s.Mail is not null) addresses.Add(s.Mail);
+        addresses.AddRange(s.ProxyAddresses);
+        foreach (var addr in addresses)
+        {
+            if (!byMail.TryGetValue(addr, out var rec)) continue;
+            if (!rec.IsGuest) { hit = rec; return true; } // native wins immediately
+            guestFallback ??= rec;
+        }
+        if (guestFallback is not null) { hit = guestFallback; return true; }
+        return false;
     }
 
     /// <summary>Discover both tenants and build the full mapping.</summary>

@@ -105,8 +105,8 @@ choosing the best match per user by precedence:
 
 1. an explicit **CSV override** you provide,
 2. a **native account with the same UPN** (e.g. a hybrid/orchestrator move that preserved the UPN),
-3. **cross-tenant / B2B** (`#EXT#`) identity already in the target,
-4. **primary mail / SMTP proxy** address match,
+3. **any shared SMTP address** — primary *or alias* on either side (native preferred over a guest),
+4. **cross-tenant / B2B** (`#EXT#`) identity already in the target,
 5. **UPN domain rewrite** (source domain → target domain).
 
 A user matched **only** to a `#EXT#` **guest** rep is flagged `target_is_guest` / shown as

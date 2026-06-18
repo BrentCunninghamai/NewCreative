@@ -12,7 +12,7 @@ public sealed class SourceUser
         "id", "userPrincipalName", "displayName", "givenName", "surname", "mail",
         "jobTitle", "department", "officeLocation", "mobilePhone", "accountEnabled",
         "userType", "usageLocation", "assignedLicenses",
-        "onPremisesSyncEnabled", "onPremisesImmutableId",
+        "onPremisesSyncEnabled", "onPremisesImmutableId", "proxyAddresses",
     };
 
     /// <summary>Expanded alongside the user so we learn each user's manager in one request.</summary>
@@ -39,6 +39,8 @@ public sealed class SourceUser
     public bool OnPremisesSyncEnabled { get; set; }
     /// <summary>The on-prem anchor (immutableId / ms-DS-ConsistencyGuid), when hybrid-synced.</summary>
     public string? OnPremisesImmutableId { get; set; }
+    /// <summary>All SMTP addresses (primary + aliases), used to match a target by any shared address.</summary>
+    public List<string> ProxyAddresses { get; set; } = new();
 
     public static SourceUser FromGraph(JsonElement data)
     {
@@ -69,6 +71,14 @@ public sealed class SourceUser
             var sku = license.GetStringOrNull("skuId");
             if (sku is not null)
                 user.AssignedSkuIds.Add(sku);
+        }
+
+        foreach (var proxy in data.GetArrayOrEmpty("proxyAddresses"))
+        {
+            var v = proxy.GetString();
+            if (v is null) continue;
+            var colon = v.IndexOf(':'); // "SMTP:primary@x" / "smtp:alias@x" → keep the address
+            user.ProxyAddresses.Add(colon >= 0 ? v[(colon + 1)..] : v);
         }
 
         return user;
