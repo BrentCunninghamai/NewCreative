@@ -76,6 +76,14 @@ public partial class MainWindow : Window
         await _vm.MigrateAsync();
     }
 
+    private async void OnAutoSyncClick(object sender, RoutedEventArgs e)
+    {
+        ApplyInputs();
+        if (!int.TryParse(AutoSyncBox.Text, out var minutes) || minutes < 1)
+            minutes = 60;
+        await _vm.StartAutoSyncAsync(minutes);
+    }
+
     private void OnCancelClick(object sender, RoutedEventArgs e) => _vm.Cancel();
 
     private void OnOpenFolderClick(object sender, RoutedEventArgs e)

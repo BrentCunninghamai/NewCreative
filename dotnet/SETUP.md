@@ -131,6 +131,11 @@ Run the bulk workloads as repeated **pre-sync passes** in the days before cutove
 Run it daily; the `synced%` climbs toward ~100%. On cutover day, the final pass has very
 little left (just the latest changes), so the window where users must stop is short.
 
+**Automate it:** pick a **Bulk** workload, tick **Execute**, set the **“every N min”** box and
+click **Start auto-sync**. It re-runs the delta pass on that interval (rebuilding the mapping
+each round, so new users are picked up) and reports the average `synced%` per round. Leave it
+running in the days before cutover; click **Cancel** to stop, then do one final pass at cutover.
+
 ### Recommended order (later workloads depend on earlier ones)
 
 1. **Users** — so accounts exist in the target.
