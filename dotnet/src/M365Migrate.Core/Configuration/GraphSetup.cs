@@ -57,6 +57,32 @@ public static class GraphSetup
     }
 
     /// <summary>
+    /// The permissions actually needed for a given workload (so a least-privilege pre-flight
+    /// doesn't flag unrelated permissions as missing). Unknown workload → the full set.
+    /// <c>Organization.Read.All</c> is always included (Test connections / baseline).
+    /// </summary>
+    public static IReadOnlyList<string> RequiredFor(string workload)
+    {
+        IEnumerable<string> extra = workload switch
+        {
+            "User mapping (preview)" => new[] { "User.Read.All" },
+            "Users" => new[] { "User.ReadWrite.All", "User.Read.All" },
+            "Groups" => new[] { "Group.ReadWrite.All", "User.Read.All" },
+            "Mailboxes" => new[] { "MailboxSettings.ReadWrite", "User.Read.All" },
+            "Files (OneDrive)" => new[] { "Files.ReadWrite.All", "Sites.ReadWrite.All", "User.Read.All" },
+            "Mail (content)" => new[] { "Mail.ReadWrite", "User.Read.All" },
+            "Calendar & Contacts (content)" => new[] { "Calendars.ReadWrite", "Contacts.ReadWrite", "User.Read.All" },
+            "Bulk Mail (mapped users)" => new[] { "Mail.ReadWrite", "User.Read.All" },
+            "Bulk OneDrive (mapped users)" => new[] { "Files.ReadWrite.All", "Sites.ReadWrite.All", "User.Read.All" },
+            "Teams" => new[] { "Group.ReadWrite.All", "Team.Create", "Channel.ReadBasic.All", "User.Read.All" },
+            "Teams (messages)" => new[] { "Teamwork.Migrate.All", "TeamMember.ReadWrite.All", "Channel.ReadBasic.All", "Group.ReadWrite.All", "User.Read.All" },
+            "SharePoint (site)" => new[] { "Files.ReadWrite.All", "Sites.ReadWrite.All" },
+            _ => Permissions.Select(p => p.Name),
+        };
+        return new[] { "Organization.Read.All" }.Concat(extra).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
     /// The admin-consent URL a Global Admin opens to grant the app all configured permissions
     /// for <paramref name="tenantId"/> in one click. <paramref name="tenantId"/> may be a tenant
     /// id or domain; <paramref name="clientId"/> is the app registration's Application (client) id.

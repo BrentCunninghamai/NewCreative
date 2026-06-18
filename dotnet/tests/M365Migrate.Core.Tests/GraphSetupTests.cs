@@ -49,6 +49,24 @@ public class GraphSetupTests
     }
 
     [Fact]
+    public void RequiredFor_ScopesToWorkload()
+    {
+        var users = GraphSetup.RequiredFor("Users");
+        Assert.Contains("User.ReadWrite.All", users);
+        Assert.Contains("Organization.Read.All", users); // baseline always included
+        Assert.DoesNotContain("Mail.ReadWrite", users);  // unrelated workload not required
+
+        var mail = GraphSetup.RequiredFor("Bulk Mail (mapped users)");
+        Assert.Contains("Mail.ReadWrite", mail);
+        Assert.DoesNotContain("Files.ReadWrite.All", mail);
+
+        // Unknown workload falls back to the full set.
+        var all = GraphSetup.RequiredFor("???");
+        foreach (var p in GraphSetup.Permissions)
+            Assert.Contains(p.Name, all);
+    }
+
+    [Fact]
     public void SetupGuide_IncludesManifestAndBothConsentLinks()
     {
         var guide = GraphSetup.SetupGuide("srcTenant", "srcClient", "tgtTenant", "tgtClient");

@@ -84,6 +84,9 @@ executable — no .NET install required.
    `fabrikam.onmicrosoft.com`).
 3. Click **Test connections** — you should see both organizations' names. If not,
    fix the registration/consent before continuing (see Troubleshooting).
+   Then click **Pre-flight check** — it confirms, per tenant, exactly which required
+   Graph permissions are admin-consented (read from the token), so missing consent is
+   caught now instead of as a mid-run 403. Anything `missing` → fix via **App setup**.
 4. Pick a **workload**. For **Files (OneDrive)**, also fill the **Files scope**
    with the source user's UPN.
 5. Click **Discover & Plan** and review the grid (this never writes anything).

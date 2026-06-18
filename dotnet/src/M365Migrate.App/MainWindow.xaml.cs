@@ -43,6 +43,12 @@ public partial class MainWindow : Window
         await _vm.TestConnectionsAsync();
     }
 
+    private async void OnPreflightClick(object sender, RoutedEventArgs e)
+    {
+        ApplyInputs();
+        await _vm.PreflightAsync();
+    }
+
     private void OnSetupClick(object sender, RoutedEventArgs e)
     {
         ApplyInputs();
