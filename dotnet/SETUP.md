@@ -83,6 +83,22 @@ executable — no .NET install required.
 6. Click **Migrate**. It is a **dry run** until you tick **Execute**. Tick
    **Execute** and migrate again to apply.
 
+### Start with User mapping (preview)
+
+Before migrating content, run the **User mapping (preview)** workload (it's the first
+in the list). It scans **both** tenants and builds a **source → target** identity map,
+choosing the best match per user by precedence:
+
+1. an explicit **CSV override** you provide,
+2. **cross-tenant / B2B** (`#EXT#`) identity already in the target,
+3. **primary mail / SMTP proxy** address match,
+4. **UPN domain rewrite** (source domain → target domain).
+
+The grid shows each source user, the **method** used, and the matched target (or
+`unmatched`). It also exports an editable `mapping-*.csv` to the reports folder. This is
+read-only — nothing is written. Use it to confirm who maps to whom (and fix the messy
+hybrid/orchestrator cases) before running the actual content workloads.
+
 ### Recommended order (later workloads depend on earlier ones)
 
 1. **Users** — so accounts exist in the target.

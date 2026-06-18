@@ -79,6 +79,22 @@ public sealed class MainViewModel : ViewModelBase
         "m365-migrate", "reports");
 
     /// <summary>Write the current grid rows to a timestamped CSV. Never throws.</summary>
+    /// <summary>Write the editable source→target mapping CSV (re-importable for a bulk run).</summary>
+    private void WriteMappingCsv(IEnumerable<UserMatch> matches)
+    {
+        try
+        {
+            Directory.CreateDirectory(ReportsDirectory);
+            var file = Path.Combine(ReportsDirectory, $"mapping-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+            File.WriteAllText(file, UserMatchingWorkload.ToCsv(matches));
+            AppLog.Write($"mapping CSV written: {file}");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Write($"failed to write mapping CSV: {ex.Message}");
+        }
+    }
+
     private void WriteReport(string kind)
     {
         try
@@ -112,6 +128,7 @@ public sealed class MainViewModel : ViewModelBase
     private string? _ccSourceRef;
     private string? _ccTargetRef;
     private List<MigratableTeam>? _messageTeams;
+    private List<UserMatch>? _userMatches;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -249,6 +266,7 @@ public sealed class MainViewModel : ViewModelBase
         _plannedMailFolders = null;
         _calContactsPlanned = false;
         _messageTeams = null;
+        _userMatches = null;
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         try
@@ -261,7 +279,25 @@ public sealed class MainViewModel : ViewModelBase
             var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
             var target = new GraphClient(targetHttp, TokenProviders.ForTenant(config.Target));
 
-            if (Workload == "Groups")
+            if (Workload == "User mapping (preview)")
+            {
+                var workload = new UserMatchingWorkload(config);
+                _userMatches = await workload.BuildAsync(source, target, ct: ct);
+                WriteMappingCsv(_userMatches);
+                foreach (var m in _userMatches.OrderBy(m => m.Matched ? 1 : 0))
+                    Rows.Add(new PlanRow
+                    {
+                        Name = m.SourceUpn,
+                        Action = m.Matched ? m.Method : "unmatched",
+                        Detail = m.TargetUpn ?? "—",
+                        Reason = m.Note ?? "",
+                    });
+                var matched = _userMatches.Count(m => m.Matched);
+                Status = $"Mapped {matched}/{_userMatches.Count} source users to the target " +
+                         $"({_userMatches.Count - matched} unmatched). Exported mapping CSV to {ReportsDirectory}. " +
+                         "Review; edit the CSV to override matches for a bulk run.";
+            }
+            else if (Workload == "Groups")
             {
                 var workload = new GroupsWorkload(config);
                 var groups = await workload.DiscoverAsync(source, ct);
@@ -439,6 +475,12 @@ public sealed class MainViewModel : ViewModelBase
     public async Task MigrateAsync()
     {
         if (IsBusy) return;
+        if (Workload == "User mapping (preview)")
+        {
+            Status = "User mapping is a preview — no changes to apply. Use it to review/export the " +
+                     "source→target map, then run the actual workloads (Mail, Files, ...).";
+            return;
+        }
         if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
             && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null
             && !_calContactsPlanned && _messageTeams is null)
