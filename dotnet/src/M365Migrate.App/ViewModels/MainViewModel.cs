@@ -811,9 +811,25 @@ public sealed class MainViewModel : ViewModelBase
             var srcRef = $"/users/{m.SourceUpn}";
             var tgtRef = $"/users/{m.TargetId ?? m.TargetUpn}";
             var r = new WorkloadResult { Name = m.SourceUpn };
+
+            // Read the SOURCE mailbox first; only this path is "mailbox unavailable"
+            // (hybrid/on-prem source). A failure copying to the TARGET is a real error,
+            // handled separately below, so a missing target mailbox isn't masked as a skip.
+            List<MailFolderInfo> folders;
             try
             {
-                var folders = await mailWl.DiscoverFoldersAsync(source, srcRef, ct);
+                folders = await mailWl.DiscoverFoldersAsync(source, srcRef, ct);
+            }
+            catch (GraphException ex) when (MailWorkload.IsMailboxUnavailable(ex))
+            {
+                r.Status = "skipped";
+                r.Reason = MailWorkload.MailboxErrorHint(ex);
+                results.Add(r);
+                continue;
+            }
+
+            try
+            {
                 var planned = mailWl.Plan(folders);
                 var perFolder = await mailWl.MigrateAsync(source, target, srcRef, tgtRef, planned, dryRun: !Execute, ct);
                 r.Detail["folders"] = planned.Count.ToString();
@@ -834,13 +850,13 @@ public sealed class MainViewModel : ViewModelBase
                     r.Detail["~items"] = planned.Sum(f => f.ItemCount).ToString();
                 }
             }
-            catch (GraphException ex) when (MailWorkload.IsMailboxUnavailable(ex))
+            catch (GraphException ex)
             {
-                // Hybrid / on-prem mailbox (or none) — record and keep going.
-                r.Status = "skipped";
+                // Target-side or other failure — surface it (hint distinguishes a missing
+                // target mailbox / licensing from a transient error).
+                r.Status = "error";
                 r.Reason = MailWorkload.MailboxErrorHint(ex);
             }
-            catch (GraphException ex) { r.Status = "error"; r.Reason = ex.Message; }
             results.Add(r);
         }
         return results;
