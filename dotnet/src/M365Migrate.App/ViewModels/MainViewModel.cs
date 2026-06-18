@@ -452,7 +452,21 @@ public sealed class MainViewModel : ViewModelBase
                 var workload = new MailWorkload(config);
                 (_mailSourceRef, _mailTargetRef) = workload.ResolveUserRefs(Scope, ScopeTargetUpn);
                 var idSuffix = await VerifyIdentitiesAsync(source, target, _mailSourceRef, _mailTargetRef, ct);
-                var folders = await workload.DiscoverFoldersAsync(source, _mailSourceRef, ct);
+                List<MailFolderInfo> folders;
+                try
+                {
+                    folders = await workload.DiscoverFoldersAsync(source, _mailSourceRef, ct);
+                }
+                catch (GraphException ex) when (MailWorkload.IsMailboxUnavailable(ex))
+                {
+                    // Hybrid / on-prem mailbox (or none) — leave the plan null so Migrate won't run.
+                    _plannedMailFolders = null;
+                    var hint = MailWorkload.MailboxErrorHint(ex);
+                    Rows.Add(new PlanRow { Name = "Mailbox", Action = "unavailable", Detail = "couldn't read source mailbox", Reason = hint });
+                    Status = $"Mail for {Scope}: {hint}" + idSuffix;
+                    WriteReport("plan");
+                    return;
+                }
                 _plannedMailFolders = workload.Plan(folders);
                 foreach (var p in _plannedMailFolders)
                     Rows.Add(new PlanRow
@@ -542,7 +556,7 @@ public sealed class MainViewModel : ViewModelBase
                     {
                         Name = p.TargetUpn,
                         Action = p.Action,
-                        Detail = $"{p.SourceUpn}  [{p.UserType}]",
+                        Detail = $"{p.SourceUpn}  [{p.UserType}{(p.OnPremisesSynced ? ", hybrid" : "")}]",
                         Reason = p.Reason ?? "",
                     });
                 Status = $"Planned {_plannedUsers.Count} users. Review, then Migrate.";
@@ -819,6 +833,12 @@ public sealed class MainViewModel : ViewModelBase
                     r.Status = "would-copy";
                     r.Detail["~items"] = planned.Sum(f => f.ItemCount).ToString();
                 }
+            }
+            catch (GraphException ex) when (MailWorkload.IsMailboxUnavailable(ex))
+            {
+                // Hybrid / on-prem mailbox (or none) — record and keep going.
+                r.Status = "skipped";
+                r.Reason = MailWorkload.MailboxErrorHint(ex);
             }
             catch (GraphException ex) { r.Status = "error"; r.Reason = ex.Message; }
             results.Add(r);

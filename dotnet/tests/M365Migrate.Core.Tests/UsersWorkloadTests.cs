@@ -47,6 +47,20 @@ public class UsersWorkloadTests
     }
 
     [Fact]
+    public void Plan_CarriesHybridOnPremFlag()
+    {
+        var workload = new UsersWorkload(TestData.Config());
+        var users = new[]
+        {
+            new SourceUser { Id = "1", UserPrincipalName = "sync@contoso.onmicrosoft.com", DisplayName = "Sync", OnPremisesSyncEnabled = true },
+            new SourceUser { Id = "2", UserPrincipalName = "cloud@contoso.onmicrosoft.com", DisplayName = "Cloud", OnPremisesSyncEnabled = false },
+        };
+        var planned = workload.Plan(users).ToDictionary(p => p.SourceUpn);
+        Assert.True(planned["sync@contoso.onmicrosoft.com"].OnPremisesSynced);
+        Assert.False(planned["cloud@contoso.onmicrosoft.com"].OnPremisesSynced);
+    }
+
+    [Fact]
     public void DecodeExtUpn_RecoversOriginalSourceUpn()
     {
         Assert.Equal("alice@contoso.onmicrosoft.com",

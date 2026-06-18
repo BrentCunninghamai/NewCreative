@@ -11,6 +11,8 @@ public sealed class PlannedUser
     public string TargetUpn { get; set; } = "";
     public string? DisplayName { get; set; }
     public string UserType { get; set; } = "Member";
+    /// <summary>True if the source user is on-prem synced (hybrid) — mailbox may live on-premises.</summary>
+    public bool OnPremisesSynced { get; set; }
     public string Action { get; set; } = "create";
     public string? Reason { get; set; }
 
