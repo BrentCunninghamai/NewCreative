@@ -80,6 +80,27 @@ public class UserMatchingWorkloadTests
     }
 
     [Fact]
+    public void SmtpProxyAddress_KeepsOnlySmtp()
+    {
+        Assert.Equal("a@x.com", M365Migrate.Core.Models.SourceUser.SmtpProxyAddress("SMTP:a@x.com"));
+        Assert.Equal("b@x.com", M365Migrate.Core.Models.SourceUser.SmtpProxyAddress("smtp:b@x.com"));
+        Assert.Null(M365Migrate.Core.Models.SourceUser.SmtpProxyAddress("SIP:a@x.com"));
+        Assert.Null(M365Migrate.Core.Models.SourceUser.SmtpProxyAddress("X500:/o=org/cn=a"));
+        Assert.Equal("plain@x.com", M365Migrate.Core.Models.SourceUser.SmtpProxyAddress("plain@x.com"));
+    }
+
+    [Fact]
+    public void Match_DoesNotMatchOnNonSmtpProxy()
+    {
+        // A source SIP proxy must NOT be treated as an email address for matching.
+        var src = new SourceUser { Id = "s", UserPrincipalName = "a@net1.com" };
+        src.ProxyAddresses.Clear(); // simulate post-parse: SIP was filtered out, so no usable addresses
+        var targets = new[] { new TargetUserRec("t", "a@lesaka.tech", "a@contoso.com", new[] { "a@contoso.com" }, "Member") };
+        var m = _wl.Match(new[] { src }, targets).Single();
+        Assert.False(m.Matched); // no shared SMTP address, no UPN/rewrite match
+    }
+
+    [Fact]
     public void Match_MatchesNativeByAliasWhenUpnAndPrimaryDiffer()
     {
         // Paul: source UPN/primary differ from the target's, but a shared alias links them to

@@ -19,11 +19,10 @@ public sealed record TargetUserRec(string Id, string Upn, string? Mail, IReadOnl
         var smtp = new List<string>();
         foreach (var p in el.GetArrayOrEmpty("proxyAddresses"))
         {
-            var v = p.GetString();
-            if (v is null) continue;
-            // proxyAddresses look like "SMTP:primary@x" / "smtp:alias@x"; keep the address.
-            var colon = v.IndexOf(':');
-            smtp.Add(colon >= 0 ? v[(colon + 1)..] : v);
+            // Keep only SMTP addresses; skip SIP:/X500:/… so they don't cause false matches.
+            var addr = Models.SourceUser.SmtpProxyAddress(p.GetString());
+            if (addr is not null)
+                smtp.Add(addr);
         }
         return new TargetUserRec(
             el.GetStringOrNull("id") ?? "",

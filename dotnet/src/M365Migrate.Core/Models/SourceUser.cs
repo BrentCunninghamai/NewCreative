@@ -75,12 +75,24 @@ public sealed class SourceUser
 
         foreach (var proxy in data.GetArrayOrEmpty("proxyAddresses"))
         {
-            var v = proxy.GetString();
-            if (v is null) continue;
-            var colon = v.IndexOf(':'); // "SMTP:primary@x" / "smtp:alias@x" → keep the address
-            user.ProxyAddresses.Add(colon >= 0 ? v[(colon + 1)..] : v);
+            var addr = SmtpProxyAddress(proxy.GetString());
+            if (addr is not null)
+                user.ProxyAddresses.Add(addr);
         }
 
         return user;
+    }
+
+    /// <summary>
+    /// Return the email address from an SMTP proxyAddresses entry ("SMTP:primary@x" /
+    /// "smtp:alias@x"), or null for non-SMTP schemes (SIP:, X500:, …) which must not be
+    /// treated as email addresses for matching.
+    /// </summary>
+    public static string? SmtpProxyAddress(string? proxy)
+    {
+        if (string.IsNullOrEmpty(proxy)) return null;
+        var colon = proxy.IndexOf(':');
+        if (colon < 0) return proxy; // unprefixed (e.g. the mail attribute) — treat as an address
+        return proxy[..colon].Equals("smtp", StringComparison.OrdinalIgnoreCase) ? proxy[(colon + 1)..] : null;
     }
 }
