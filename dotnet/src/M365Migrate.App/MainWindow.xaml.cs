@@ -34,6 +34,8 @@ public partial class MainWindow : Window
         _vm.DisplayNameSuffix = DisplayNameSuffixBox.Text;
         _vm.RewriteUpn = RewriteUpnCheck.IsChecked == true;
         _vm.SkipGuests = SkipGuestsCheck.IsChecked == true;
+        _vm.AssignLicenses = AssignLicensesCheck.IsChecked == true;
+        _vm.DefaultUsageLocation = UsageLocationBox.Text;
         _vm.Execute = ExecuteCheck.IsChecked == true;
     }
 

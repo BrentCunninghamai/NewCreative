@@ -66,7 +66,10 @@
 
                 <CheckBox x:Name="RewriteUpnCheck" Content="Rewrite UPN domain to target" IsChecked="True" Margin="0,10,0,4" />
                 <CheckBox x:Name="SkipGuestsCheck" Content="Skip guest users" IsChecked="True" Margin="0,0,0,4" />
-                <CheckBox x:Name="ExecuteCheck" Content="Execute (unchecked = dry run)" Margin="0,0,0,8" />
+                <CheckBox x:Name="AssignLicensesCheck" Content="Assign licenses on create (match source SKUs by part number)" Margin="0,0,0,4" />
+                <TextBlock Text="Default usage location (2-letter, e.g. US / ZA) — used when a user has none" />
+                <TextBox x:Name="UsageLocationBox" />
+                <CheckBox x:Name="ExecuteCheck" Content="Execute (unchecked = dry run)" Margin="0,6,0,8" />
 
                 <Button x:Name="TestButton" Content="Test connections" Height="30" Margin="0,8,0,2" Click="OnTestClick" />
                 <Button x:Name="PreflightButton" Content="Pre-flight check (permissions consented?)" Height="28" Margin="0,2" Click="OnPreflightClick" />

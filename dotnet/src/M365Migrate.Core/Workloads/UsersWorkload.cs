@@ -159,6 +159,8 @@ public sealed class UsersWorkload
                 DisplayName = TargetNaming.TargetDisplayName(user.DisplayName, _config),
                 UserType = user.UserType,
                 OnPremisesSynced = user.OnPremisesSyncEnabled,
+                UsageLocation = user.UsageLocation,
+                SourceSkuIds = new List<string>(user.AssignedSkuIds),
                 Action = action,
                 Reason = reason,
             });
@@ -166,13 +168,61 @@ public sealed class UsersWorkload
         return planned;
     }
 
-    /// <summary>Create the planned users in the target tenant (dry run unless executed).</summary>
+    /// <summary>Map skuId → skuPartNumber for a tenant (subscribedSkus). The part number is the
+    /// product identifier that's consistent across tenants; skuId is per-tenant.</summary>
+    public static async Task<Dictionary<string, string>> SkuIdToPartAsync(GraphClient client, CancellationToken ct = default)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in await client.GetAllAsync("/subscribedSkus?$select=skuId,skuPartNumber", ct))
+        {
+            var id = s.GetStringOrNull("skuId");
+            var part = s.GetStringOrNull("skuPartNumber");
+            if (id is not null && part is not null)
+                map[id] = part;
+        }
+        return map;
+    }
+
+    /// <summary>Map skuPartNumber → skuId for a tenant (to translate a source license to the target).</summary>
+    public static async Task<Dictionary<string, string>> PartToSkuIdAsync(GraphClient client, CancellationToken ct = default)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in await client.GetAllAsync("/subscribedSkus?$select=skuId,skuPartNumber", ct))
+        {
+            var id = s.GetStringOrNull("skuId");
+            var part = s.GetStringOrNull("skuPartNumber");
+            if (id is not null && part is not null)
+                map[part] = id;
+        }
+        return map;
+    }
+
+    /// <summary>Translate a planned user's source SKU ids to target SKU ids via part number.</summary>
+    internal static List<string> TargetSkuIds(
+        IEnumerable<string> sourceSkuIds,
+        IReadOnlyDictionary<string, string> sourceIdToPart,
+        IReadOnlyDictionary<string, string> targetPartToId)
+    {
+        var ids = new List<string>();
+        foreach (var src in sourceSkuIds)
+            if (sourceIdToPart.TryGetValue(src, out var part) && targetPartToId.TryGetValue(part, out var tgt))
+                ids.Add(tgt);
+        return ids;
+    }
+
+    /// <summary>Create the planned users in the target tenant (dry run unless executed). When
+    /// license maps are supplied, also assign the target equivalents of each user's source
+    /// licenses (matched by SKU part number) after creation.</summary>
     public async Task<List<WorkloadResult>> MigrateAsync(
         GraphClient target,
         IEnumerable<PlannedUser> planned,
         bool dryRun = true,
+        IReadOnlyDictionary<string, string>? sourceSkuIdToPart = null,
+        IReadOnlyDictionary<string, string>? targetPartToSkuId = null,
+        string? defaultUsageLocation = null,
         CancellationToken ct = default)
     {
+        var assignLicenses = sourceSkuIdToPart is not null && targetPartToSkuId is not null;
         var results = new List<WorkloadResult>();
         foreach (var p in planned)
         {
@@ -183,24 +233,67 @@ public sealed class UsersWorkload
             }
             if (dryRun)
             {
-                results.Add(new WorkloadResult(p.TargetUpn, "would-create"));
+                var would = new WorkloadResult(p.TargetUpn, "would-create");
+                if (assignLicenses)
+                {
+                    var skus = TargetSkuIds(p.SourceSkuIds, sourceSkuIdToPart!, targetPartToSkuId!);
+                    if (skus.Count > 0) would.Detail["licenses"] = $"would-assign:{skus.Count}";
+                }
+                results.Add(would);
                 continue;
             }
 
-            var body = p.ToGraphBody(GeneratePassword());
+            var body = p.ToGraphBody(GeneratePassword(), defaultUsageLocation);
+            WorkloadResult result;
+            string? id;
             try
             {
                 var created = await target.PostJsonAsync("/users", body, ct);
-                var result = new WorkloadResult(p.TargetUpn, "created");
-                var id = created.GetStringOrNull("id");
+                result = new WorkloadResult(p.TargetUpn, "created");
+                id = created.GetStringOrNull("id");
                 if (id is not null)
                     result.Detail["target_id"] = id;
-                results.Add(result);
             }
             catch (GraphException ex)
             {
                 results.Add(new WorkloadResult(p.TargetUpn, "error", ex.Message));
+                continue;
             }
+
+            if (assignLicenses && id is not null)
+            {
+                var skuIds = TargetSkuIds(p.SourceSkuIds, sourceSkuIdToPart!, targetPartToSkuId!);
+                if (skuIds.Count == 0)
+                {
+                    if (p.SourceSkuIds.Count > 0)
+                        result.Detail["licenses"] = "none-matched";
+                }
+                else if (string.IsNullOrEmpty(p.UsageLocation) && string.IsNullOrEmpty(defaultUsageLocation))
+                {
+                    result.Detail["licenses"] = "skipped:no-usageLocation";
+                }
+                else
+                {
+                    try
+                    {
+                        await target.PostJsonAsync($"/users/{id}/assignLicense", new Dictionary<string, object>
+                        {
+                            ["addLicenses"] = skuIds.Select(s => new Dictionary<string, object>
+                            {
+                                ["skuId"] = s,
+                                ["disabledPlans"] = Array.Empty<string>(),
+                            }).ToArray(),
+                            ["removeLicenses"] = Array.Empty<string>(),
+                        }, ct);
+                        result.Detail["licenses"] = $"assigned:{skuIds.Count}";
+                    }
+                    catch (GraphException ex)
+                    {
+                        result.Detail["licenses"] = $"error:{ex.StatusCode}";
+                    }
+                }
+            }
+            results.Add(result);
         }
         return results;
     }

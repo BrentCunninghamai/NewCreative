@@ -47,6 +47,26 @@ public class UsersWorkloadTests
     }
 
     [Fact]
+    public void TargetSkuIds_TranslatesByPartNumber()
+    {
+        // Source and target use different SKU GUIDs for the same product (part number).
+        var sourceIdToPart = new Dictionary<string, string>
+        {
+            ["src-e3"] = "SPE_E3",
+            ["src-unmapped"] = "SOME_ADDON",
+        };
+        var targetPartToId = new Dictionary<string, string>
+        {
+            ["SPE_E3"] = "tgt-e3", // present in target
+            // SOME_ADDON not sold in target
+        };
+
+        var result = UsersWorkload.TargetSkuIds(new[] { "src-e3", "src-unmapped" }, sourceIdToPart, targetPartToId);
+
+        Assert.Equal(new[] { "tgt-e3" }, result); // mapped; the addon with no target equivalent is dropped
+    }
+
+    [Fact]
     public void Plan_CarriesHybridOnPremFlag()
     {
         var workload = new UsersWorkload(TestData.Config());

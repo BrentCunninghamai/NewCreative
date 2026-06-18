@@ -37,6 +37,9 @@ public sealed class MainViewModel : ViewModelBase
     public bool RewriteUpn { get; set; } = true;
     public bool SkipGuests { get; set; } = true;
     public bool Execute { get; set; }
+    // Users workload: assign target-equivalent licenses (matched by SKU part number) on create.
+    public bool AssignLicenses { get; set; }
+    public string DefaultUsageLocation { get; set; } = "";
 
     // Optional name prefix/suffix to keep identities distinct when merging
     // multiple source tenants into one target (e.g. prefix "contoso-").
@@ -739,7 +742,21 @@ public sealed class MainViewModel : ViewModelBase
             }
             else if (_plannedUsers is not null)
             {
-                results = await new UsersWorkload(config).MigrateAsync(target, _plannedUsers, dryRun: !Execute, ct: ct);
+                if (AssignLicenses)
+                {
+                    using var sourceHttp = new HttpClient();
+                    var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                    var sourceSkuMap = await UsersWorkload.SkuIdToPartAsync(source, ct);
+                    var targetSkuMap = await UsersWorkload.PartToSkuIdAsync(target, ct);
+                    var ul = DefaultUsageLocation.Trim();
+                    results = await new UsersWorkload(config).MigrateAsync(
+                        target, _plannedUsers, dryRun: !Execute,
+                        sourceSkuMap, targetSkuMap, ul.Length > 0 ? ul : null, ct);
+                }
+                else
+                {
+                    results = await new UsersWorkload(config).MigrateAsync(target, _plannedUsers, dryRun: !Execute, ct: ct);
+                }
             }
             else
             {
