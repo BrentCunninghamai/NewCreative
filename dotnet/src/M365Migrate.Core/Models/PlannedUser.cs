@@ -13,6 +13,10 @@ public sealed class PlannedUser
     public string UserType { get; set; } = "Member";
     /// <summary>True if the source user is on-prem synced (hybrid) — mailbox may live on-premises.</summary>
     public bool OnPremisesSynced { get; set; }
+    /// <summary>The source user's usageLocation (required before a license can be assigned).</summary>
+    public string? UsageLocation { get; set; }
+    /// <summary>The source tenant license SKU ids assigned to this user (mapped to target by part number).</summary>
+    public List<string> SourceSkuIds { get; set; } = new();
     public string Action { get; set; } = "create";
     public string? Reason { get; set; }
 
@@ -32,8 +36,10 @@ public sealed class PlannedUser
                 ["password"] = password,
             },
         };
-        if (!string.IsNullOrEmpty(defaultUsageLocation))
-            body["usageLocation"] = defaultUsageLocation;
+        // usageLocation is required before a license can be assigned; prefer the source value.
+        var usageLocation = !string.IsNullOrEmpty(UsageLocation) ? UsageLocation : defaultUsageLocation;
+        if (!string.IsNullOrEmpty(usageLocation))
+            body["usageLocation"] = usageLocation;
         return body;
     }
 }

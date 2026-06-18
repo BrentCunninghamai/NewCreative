@@ -120,6 +120,16 @@ replaces), and a per-user problem (e.g. a user with no OneDrive, or a mailbox st
 mid-move) is recorded and skipped without stopping the batch. **Cancel** stops between
 users; already-processed users stay done.
 
+### Assigning licenses when creating users
+
+Mail and OneDrive only provision once a user has a **license**. On the **Users** workload,
+tick **“Assign licenses on create”** to give each created target user the equivalent of their
+source licenses — matched by **SKU part number** (e.g. `SPE_E3`), since the SKU GUID differs
+per tenant. A source license with no equivalent in the target is reported `none-matched`.
+Licensing requires a **usage location**; the tool uses the source user's, or the **Default
+usage location** you set (2-letter, e.g. `US`/`ZA`) when they have none. Needs
+`User.ReadWrite.All` (+ `Organization.Read.All` to read the target's available SKUs).
+
 ### Pre-sync to ~97%, then a small cutover (delta)
 
 Because the tool only **reads** the source, **users keep working there** while you migrate.
