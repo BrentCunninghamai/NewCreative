@@ -426,26 +426,28 @@ public sealed class MainViewModel : ViewModelBase
                 var workload = new UserMatchingWorkload(config);
                 _userMatches = await workload.BuildAsync(source, target, ct: ct);
                 WriteMappingCsv(_userMatches);
-                foreach (var m in _userMatches.OrderBy(m => m.Matched ? 1 : 0))
+                foreach (var m in _userMatches.OrderBy(m => m.ContentReady ? 2 : m.Matched ? 1 : 0))
                     Rows.Add(new PlanRow
                     {
                         Name = m.SourceUpn,
-                        Action = m.Matched ? m.Method : "unmatched",
+                        Action = !m.Matched ? "unmatched" : m.TargetIsGuest ? "guest" : m.Method,
                         Detail = m.TargetUpn ?? "—",
                         Reason = m.Note ?? "",
                     });
-                var matched = _userMatches.Count(m => m.Matched);
-                Status = $"Mapped {matched}/{_userMatches.Count} source users to the target " +
-                         $"({_userMatches.Count - matched} unmatched). Exported mapping CSV to {ReportsDirectory}. " +
-                         "Review; edit the CSV to override matches for a bulk run.";
+                var contentReady = _userMatches.Count(m => m.ContentReady);
+                var guestOnly = _userMatches.Count(m => m.Matched && m.TargetIsGuest);
+                var unmatched = _userMatches.Count(m => !m.Matched);
+                Status = $"{_userMatches.Count} source users: {contentReady} content-ready (native target), " +
+                         $"{guestOnly} matched only to a guest (#EXT#), {unmatched} unmatched. " +
+                         $"Mapping CSV exported to {ReportsDirectory}. Filter “guest”/“unmatched” to review.";
             }
             else if (Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)")
             {
                 var content = Workload.Contains("Mail") ? "Mail" : "OneDrive";
                 _userMatches = await new UserMatchingWorkload(config).BuildAsync(source, target, ct: ct);
                 WriteMappingCsv(_userMatches);
-                var matched = _userMatches.Where(m => m.Matched).ToList();
-                foreach (var m in matched)
+                var ready = _userMatches.Where(m => m.ContentReady).ToList();
+                foreach (var m in ready)
                     Rows.Add(new PlanRow
                     {
                         Name = m.SourceUpn,
@@ -453,9 +455,11 @@ public sealed class MainViewModel : ViewModelBase
                         Detail = m.TargetUpn ?? "",
                         Reason = m.Method,
                     });
-                var unmatched = _userMatches.Count - matched.Count;
-                Status = $"{matched.Count} mapped users queued for bulk {content} " +
-                         $"({unmatched} unmatched, skipped). Migrate runs them all — dry run unless Execute. " +
+                var guestOnly = _userMatches.Count(m => m.Matched && m.TargetIsGuest);
+                var unmatched = _userMatches.Count(m => !m.Matched);
+                Status = $"{ready.Count} content-ready users queued for bulk {content} " +
+                         $"({guestOnly} matched only to a guest, {unmatched} unmatched — both skipped; create native " +
+                         $"target accounts for them first). Migrate runs the queued set — dry run unless Execute. " +
                          $"Mapping CSV exported to {ReportsDirectory}.";
             }
             else if (Workload == "Groups")
@@ -928,7 +932,7 @@ public sealed class MainViewModel : ViewModelBase
         MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
     {
         var mailWl = new MailWorkload(config);
-        var matched = _userMatches!.Where(m => m.Matched).ToList();
+        var matched = _userMatches!.Where(m => m.ContentReady).ToList();
         var results = new List<WorkloadResult>();
         var i = 0;
         foreach (var m in matched)
@@ -1004,7 +1008,7 @@ public sealed class MainViewModel : ViewModelBase
         MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
     {
         var filesWl = new FilesWorkload(config);
-        var matched = _userMatches!.Where(m => m.Matched).ToList();
+        var matched = _userMatches!.Where(m => m.ContentReady).ToList();
         var results = new List<WorkloadResult>();
         var i = 0;
         foreach (var m in matched)

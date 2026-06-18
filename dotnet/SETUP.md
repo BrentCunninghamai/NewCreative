@@ -104,9 +104,15 @@ in the list). It scans **both** tenants and builds a **source → target** ident
 choosing the best match per user by precedence:
 
 1. an explicit **CSV override** you provide,
-2. **cross-tenant / B2B** (`#EXT#`) identity already in the target,
-3. **primary mail / SMTP proxy** address match,
-4. **UPN domain rewrite** (source domain → target domain).
+2. a **native account with the same UPN** (e.g. a hybrid/orchestrator move that preserved the UPN),
+3. **cross-tenant / B2B** (`#EXT#`) identity already in the target,
+4. **primary mail / SMTP proxy** address match,
+5. **UPN domain rewrite** (source domain → target domain).
+
+A user matched **only** to a `#EXT#` **guest** rep is flagged `target_is_guest` / shown as
+`guest` — they exist in the target but a guest **can't receive migrated mail/OneDrive**, so
+the bulk content workloads **skip** them (create/convert a native target account first). The
+mapping summary reports **content-ready** (native target) vs **guest-only** vs **unmatched**.
 
 The grid shows each source user, the **method** used, and the matched target (or
 `unmatched`). It also exports an editable `mapping-*.csv` to the reports folder. This is
