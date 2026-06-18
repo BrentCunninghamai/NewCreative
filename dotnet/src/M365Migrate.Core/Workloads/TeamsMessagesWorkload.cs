@@ -15,10 +15,13 @@ namespace M365Migrate.Core.Workloads;
 /// Teams on the already-migrated M365 group). A migration-mode team is created
 /// fresh, so it has its own backing group; add members after migration completes.
 ///
+/// After completeMigration it also adds the source team's owners and members to the
+/// new team (mapped to target accounts), so it's usable immediately.
+///
 /// Not idempotent: completeMigration is one-shot, so re-running creates a duplicate
-/// team — run once per team. Requires Teamwork.Migrate.All (and user read) with
-/// admin consent. Top-level messages are imported; threaded replies and membership
-/// are follow-up work.
+/// team — run once per team. Requires Teamwork.Migrate.All + TeamMember.ReadWrite.All
+/// (and user read) with admin consent. Top-level messages are imported; threaded
+/// replies are follow-up work.
 /// </summary>
 public sealed class TeamsMessagesWorkload
 {
@@ -80,6 +83,79 @@ public sealed class TeamsMessagesWorkload
             return null;
         var targetUpn = TargetNaming.TargetUpn(upn, _config);
         return targetUpnToId.TryGetValue(targetUpn, out var id) ? id : null;
+    }
+
+    private static async Task<List<string>> GroupUpnsAsync(GraphClient source, string url, CancellationToken ct)
+    {
+        var raw = await source.GetAllAsync(url, ct);
+        var upns = new List<string>();
+        foreach (var u in raw)
+        {
+            var upn = u.GetStringOrNull("userPrincipalName");
+            if (upn is not null)
+                upns.Add(upn);
+        }
+        return upns;
+    }
+
+    private bool TryTargetId(string sourceUpn, IReadOnlyDictionary<string, string> map, out string id)
+    {
+        id = "";
+        if (map.TryGetValue(TargetNaming.TargetUpn(sourceUpn, _config), out var v))
+        {
+            id = v;
+            return true;
+        }
+        return false;
+    }
+
+    private static async Task<bool> AddOneMemberAsync(GraphClient target, string teamId, string userId, bool owner, CancellationToken ct)
+    {
+        try
+        {
+            await target.PostJsonAsync($"/teams/{teamId}/members", new Dictionary<string, object>
+            {
+                ["@odata.type"] = "#microsoft.graph.aadUserConversationMember",
+                ["roles"] = owner ? new[] { "owner" } : Array.Empty<string>(),
+                ["user@odata.bind"] = $"https://graph.microsoft.com/v1.0/users('{userId}')",
+            }, ct);
+            return true;
+        }
+        catch (GraphException)
+        {
+            return false; // best-effort per member; the batch continues
+        }
+    }
+
+    /// <summary>
+    /// Add the source team's owners and members to the (now unlocked) target team, mapping each
+    /// source UPN to its target account. Owners are added first (a team needs an owner); a user
+    /// who is both owner and member is added once as owner. Returns (owners, members, errors).
+    /// </summary>
+    private async Task<(int Owners, int Members, int Errors)> AddTeamMembersAsync(
+        GraphClient source, GraphClient target, string sourceGroupId, string teamId,
+        IReadOnlyDictionary<string, string> targetUpnToId, CancellationToken ct)
+    {
+        var owners = await GroupUpnsAsync(source, $"/groups/{sourceGroupId}/owners?$select=id,userPrincipalName&$top=999", ct);
+        var members = await GroupUpnsAsync(source, $"/groups/{sourceGroupId}/members?$select=id,userPrincipalName&$top=999", ct);
+        var ownerUpns = new HashSet<string>(owners, StringComparer.OrdinalIgnoreCase);
+        var addedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int addedOwners = 0, addedMembers = 0, errors = 0;
+
+        foreach (var upn in owners)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!TryTargetId(upn, targetUpnToId, out var id) || !addedIds.Add(id)) continue;
+            if (await AddOneMemberAsync(target, teamId, id, owner: true, ct)) addedOwners++; else errors++;
+        }
+        foreach (var upn in members)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (ownerUpns.Contains(upn)) continue;
+            if (!TryTargetId(upn, targetUpnToId, out var id) || !addedIds.Add(id)) continue;
+            if (await AddOneMemberAsync(target, teamId, id, owner: false, ct)) addedMembers++; else errors++;
+        }
+        return (addedOwners, addedMembers, errors);
     }
 
     /// <summary>Create migration-mode teams, import message history, and complete migration.</summary>
@@ -243,6 +319,25 @@ public sealed class TeamsMessagesWorkload
             {
                 record.Status = "error";
                 record.Reason = $"completeMigration:{ex.StatusCode}";
+            }
+
+            // After completeMigration, add the source team's owners + members (a migration-mode
+            // team is created empty). Members can only be added once the team is unlocked.
+            if (record.Status == "ok")
+            {
+                try
+                {
+                    var (owners, members, memberErrors) =
+                        await AddTeamMembersAsync(source, target, team.GroupId, newTeamId, targetUpnToId, ct);
+                    record.Detail["owners"] = owners.ToString();
+                    record.Detail["members"] = members.ToString();
+                    if (memberErrors > 0)
+                        record.Detail["member_errors"] = memberErrors.ToString();
+                }
+                catch (GraphException ex)
+                {
+                    record.Detail["members"] = $"error:{ex.StatusCode}";
+                }
             }
 
             record.Detail["messages"] = $"imported:{imported}";

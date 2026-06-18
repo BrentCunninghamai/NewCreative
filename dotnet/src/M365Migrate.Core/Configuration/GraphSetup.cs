@@ -35,6 +35,7 @@ public static class GraphSetup
         new GraphPermission("Team.Create",              "23fc2474-f741-46ce-8465-674744c5c361", "Teams: create/enable"),
         new GraphPermission("Channel.ReadBasic.All",    "59a6b24b-4225-4393-8165-ebaec5f55d7a", "Teams: read channels"),
         new GraphPermission("Teamwork.Migrate.All",     "dfb0dd15-61de-45b2-be36-d6a69fba3c79", "Teams: import message history"),
+        new GraphPermission("TeamMember.ReadWrite.All", "0121dc95-1b9f-4aed-8bac-58c5ac466691", "Teams: add members/owners"),
     };
 
     /// <summary>
