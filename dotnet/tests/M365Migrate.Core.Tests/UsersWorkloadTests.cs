@@ -47,6 +47,22 @@ public class UsersWorkloadTests
     }
 
     [Fact]
+    public void DescribeSharePointPlan_DistinguishesLicensingFromMultiGeo()
+    {
+        var none = System.Text.Json.JsonDocument.Parse(
+            "{\"assignedPlans\":[{\"service\":\"exchange\",\"capabilityStatus\":\"Enabled\"}]}").RootElement;
+        Assert.Contains("no SharePoint", UsersWorkload.DescribeSharePointPlan(none));
+
+        var enabled = System.Text.Json.JsonDocument.Parse(
+            "{\"assignedPlans\":[{\"service\":\"SharePoint\",\"capabilityStatus\":\"Enabled\"}]}").RootElement;
+        Assert.Contains("multi-geo", UsersWorkload.DescribeSharePointPlan(enabled));
+
+        var disabled = System.Text.Json.JsonDocument.Parse(
+            "{\"assignedPlans\":[{\"service\":\"SharePoint\",\"capabilityStatus\":\"Deleted\"}]}").RootElement;
+        Assert.Contains("not serviceable", UsersWorkload.DescribeSharePointPlan(disabled));
+    }
+
+    [Fact]
     public void TargetSkuIds_TranslatesByPartNumber()
     {
         // Source and target use different SKU GUIDs for the same product (part number).

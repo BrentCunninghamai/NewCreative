@@ -210,6 +210,36 @@ public sealed class UsersWorkload
         return ids;
     }
 
+    /// <summary>
+    /// Describe a user's SharePoint/OneDrive service-plan status from their assignedPlans —
+    /// used to diagnose a "notSupported" OneDrive read (e.g. a cut-over user whose source
+    /// account no longer has an active SharePoint plan, only a cross-tenant license).
+    /// </summary>
+    public static string DescribeSharePointPlan(System.Text.Json.JsonElement user)
+    {
+        var statuses = new List<string>();
+        foreach (var plan in user.GetArrayOrEmpty("assignedPlans"))
+        {
+            var service = plan.GetStringOrNull("service");
+            if (service is null || !service.Contains("SharePoint", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var status = plan.GetStringOrNull("capabilityStatus") ?? "Unknown";
+            statuses.Add(status);
+        }
+        if (statuses.Count == 0)
+            return "no SharePoint/OneDrive service plan assigned (so the source OneDrive can't be read)";
+        if (statuses.Any(s => s.Equals("Enabled", StringComparison.OrdinalIgnoreCase)))
+            return "SharePoint plan Enabled (so a notSupported read is likely multi-geo, not licensing)";
+        return $"SharePoint plan present but not enabled ({string.Join("/", statuses.Distinct())}) — source OneDrive not serviceable";
+    }
+
+    /// <summary>Read a user's assignedPlans and describe their SharePoint plan status.</summary>
+    public static async Task<string> SharePointPlanStatusAsync(GraphClient client, string userKey, CancellationToken ct = default)
+    {
+        var el = await client.GetAsync($"/users/{userKey}?$select=assignedPlans", ct);
+        return DescribeSharePointPlan(el);
+    }
+
     /// <summary>Create the planned users in the target tenant (dry run unless executed). When
     /// license maps are supplied, also assign the target equivalents of each user's source
     /// licenses (matched by SKU part number) after creation.</summary>
