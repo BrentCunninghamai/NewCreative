@@ -161,6 +161,30 @@ blank for a single-source migration. Optionally set a **Display-name suffix**
 (e.g. `(Contoso)`) so merged users are also distinguishable in the target GAL
 (`Jane Doe (Contoso)`).
 
+## Hybrid source tenants (on-prem AD / Exchange)
+
+If a source tenant is **hybrid** (users mastered in on-prem Active Directory and synced via
+Entra Connect, and/or mailboxes still on **Exchange Server on-premises**), the tool handles it
+as follows:
+
+- **Identity:** hybrid users are flagged **`hybrid`** in the Users plan (`onPremisesSyncEnabled`).
+  They still map and create in the target like any user. Note: the target account is cloud-only
+  unless your target is also hybrid — decide whether you want them re-anchored to a target on-prem
+  AD before cutover.
+- **Mail on-premises:** Microsoft Graph's mail API only serves **Exchange Online** mailboxes. For
+  a user whose mailbox is still on-prem, the tool detects the Graph error
+  (`MailboxNotEnabledForRESTAPI` / "REST API is not yet supported for this mailbox") and reports
+  the user as **`skipped` — mailbox on-premises (hybrid)** rather than failing the batch. **Move
+  the mailbox to Exchange Online first** (your hybrid mailbox-move process), then re-run — the
+  mailbox-wide dedup makes it a safe catch-up.
+- **OneDrive/SharePoint:** these are cloud services; hybrid identity doesn't change them. A user
+  with no cloud OneDrive shows `unavailable` (404) as usual.
+- **Distribution lists / mail-enabled security groups:** managed by Exchange/on-prem AD, not
+  writable via Graph — out of scope (recreate with your Exchange tooling).
+
+Practical order for a hybrid source: complete (or stage) the **on-prem→Exchange Online mailbox
+moves**, then use this tool's pre-sync/bulk for mail; OneDrive/SharePoint/Teams can run in parallel.
+
 ## Taking over a user already (partly) migrated by Microsoft
 
 Common case: a user was started with **Microsoft's native cross-tenant migration** —

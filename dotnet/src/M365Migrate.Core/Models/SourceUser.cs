@@ -12,6 +12,7 @@ public sealed class SourceUser
         "id", "userPrincipalName", "displayName", "givenName", "surname", "mail",
         "jobTitle", "department", "officeLocation", "mobilePhone", "accountEnabled",
         "userType", "usageLocation", "assignedLicenses",
+        "onPremisesSyncEnabled", "onPremisesImmutableId",
     };
 
     /// <summary>Expanded alongside the user so we learn each user's manager in one request.</summary>
@@ -33,6 +34,12 @@ public sealed class SourceUser
     public string? ManagerUpn { get; set; }
     public List<string> AssignedSkuIds { get; set; } = new();
 
+    /// <summary>True if this user is mastered in on-prem AD and synced via Entra Connect
+    /// (a hybrid tenant). Such users' mailboxes may live on Exchange on-premises.</summary>
+    public bool OnPremisesSyncEnabled { get; set; }
+    /// <summary>The on-prem anchor (immutableId / ms-DS-ConsistencyGuid), when hybrid-synced.</summary>
+    public string? OnPremisesImmutableId { get; set; }
+
     public static SourceUser FromGraph(JsonElement data)
     {
         var user = new SourceUser
@@ -50,6 +57,8 @@ public sealed class SourceUser
             AccountEnabled = data.GetBoolOrDefault("accountEnabled", true),
             UserType = data.GetStringOrNull("userType") ?? "Member",
             UsageLocation = data.GetStringOrNull("usageLocation"),
+            OnPremisesSyncEnabled = data.GetBoolOrDefault("onPremisesSyncEnabled", false),
+            OnPremisesImmutableId = data.GetStringOrNull("onPremisesImmutableId"),
         };
 
         if (data.TryGetProperty("manager", out var manager) && manager.ValueKind == JsonValueKind.Object)

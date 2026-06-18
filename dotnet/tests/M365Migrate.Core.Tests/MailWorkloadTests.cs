@@ -35,6 +35,28 @@ public class MailWorkloadTests
     }
 
     [Fact]
+    public void IsMailboxUnavailable_DetectsHybridAndMissingMailboxes()
+    {
+        // Hybrid: mailbox on Exchange on-premises — Graph mail REST refuses it.
+        Assert.True(MailWorkload.IsMailboxUnavailable(new GraphException(400,
+            "{\"error\":{\"code\":\"MailboxNotEnabledForRESTAPI\",\"message\":\"REST API is not yet supported for this mailbox.\"}}")));
+        Assert.True(MailWorkload.IsMailboxUnavailable(new GraphException(404, "{\"error\":{\"code\":\"ResourceNotFound\"}}")));
+        // A real auth/other error is not a "mailbox unavailable".
+        Assert.False(MailWorkload.IsMailboxUnavailable(new GraphException(403, "{\"error\":{\"code\":\"accessDenied\"}}")));
+        Assert.False(MailWorkload.IsMailboxUnavailable(new GraphException(500, "{\"error\":{\"code\":\"internalServerError\"}}")));
+    }
+
+    [Fact]
+    public void MailboxErrorHint_CallsOutHybrid()
+    {
+        var hybrid = MailWorkload.MailboxErrorHint(new GraphException(400,
+            "{\"error\":{\"code\":\"MailboxNotEnabledForRESTAPI\",\"message\":\"REST API is not yet supported for this mailbox.\"}}"));
+        Assert.Contains("on-premises", hybrid);
+        Assert.Contains("Move the mailbox to Exchange Online", hybrid);
+        Assert.Contains("Access denied", MailWorkload.MailboxErrorHint(new GraphException(403, "{}")));
+    }
+
+    [Fact]
     public async Task Discover_WalksFolderTreeBreadthFirst()
     {
         var handler = new FakeHttpMessageHandler((req, _) =>

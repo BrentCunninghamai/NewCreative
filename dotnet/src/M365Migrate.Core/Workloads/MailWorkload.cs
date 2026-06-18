@@ -42,6 +42,38 @@ public sealed class MailWorkload
         return ($"/users/{sourceUpn}", $"/users/{target}");
     }
 
+    /// <summary>
+    /// True when a Graph error means the user's mailbox isn't reachable via Graph — typically a
+    /// **hybrid** tenant where the mailbox is still on Exchange on-premises (Graph mail REST
+    /// only serves Exchange Online mailboxes), or no mailbox at all. Lets callers report this
+    /// per user instead of failing the batch.
+    /// </summary>
+    public static bool IsMailboxUnavailable(GraphException ex)
+    {
+        if (ex.StatusCode == 404)
+            return true;
+        var m = ex.Message;
+        return m.Contains("MailboxNotEnabledForRESTAPI", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("REST API is not yet supported for this mailbox", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("MailboxNotHostedInExchangeOnline", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A human hint for why a mailbox couldn't be read, distinguishing the hybrid case.</summary>
+    public static string MailboxErrorHint(GraphException ex)
+    {
+        var m = ex.Message;
+        if (m.Contains("MailboxNotEnabledForRESTAPI", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("REST API is not yet supported", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("MailboxNotHostedInExchangeOnline", StringComparison.OrdinalIgnoreCase))
+            return "Mailbox is on Exchange on-premises (hybrid) — Graph can't read it. Move the mailbox to "
+                 + "Exchange Online first (hybrid mailbox move), then re-run; the dedup makes it a safe catch-up.";
+        if (ex.StatusCode == 404)
+            return "No Exchange Online mailbox for this user (on-prem/hybrid or unlicensed) — nothing to copy via Graph.";
+        if (ex.StatusCode is 401 or 403)
+            return "Access denied reading mail — grant Mail.ReadWrite on the source app and admin-consent.";
+        return ex.Message;
+    }
+
     private const string FolderSelect = "id,displayName,parentFolderId,totalItemCount,childFolderCount";
 
     /// <summary>Walk a mailbox's folder tree breadth-first (parents before children).</summary>

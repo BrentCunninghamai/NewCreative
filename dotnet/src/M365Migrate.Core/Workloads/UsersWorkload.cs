@@ -158,6 +158,7 @@ public sealed class UsersWorkload
                 TargetUpn = targetUpn,
                 DisplayName = TargetNaming.TargetDisplayName(user.DisplayName, _config),
                 UserType = user.UserType,
+                OnPremisesSynced = user.OnPremisesSyncEnabled,
                 Action = action,
                 Reason = reason,
             });
