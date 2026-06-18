@@ -294,7 +294,8 @@ public sealed class MainViewModel : ViewModelBase
         try
         {
             var config = BuildConfig();
-            var required = GraphSetup.Permissions.Select(p => p.Name).ToList();
+            // Check only what the selected workload needs (least-privilege friendly).
+            var required = GraphSetup.RequiredFor(Workload);
             var totalMissing = 0;
             foreach (var (label, tenant) in new[] { ("Source", config.Source), ("Target", config.Target) })
             {
@@ -320,8 +321,8 @@ public sealed class MainViewModel : ViewModelBase
             }
             WriteReport("preflight");
             Status = totalMissing == 0
-                ? "Pre-flight passed — both tenants authenticate and all permissions are consented. Ready to migrate."
-                : $"Pre-flight found issues ({totalMissing}). Fix consent with “App setup”, then re-check. " +
+                ? $"Pre-flight passed for “{Workload}” — both tenants authenticate and the needed permissions are consented. Ready to migrate."
+                : $"Pre-flight for “{Workload}” found issues ({totalMissing}). Fix consent with “App setup”, then re-check. " +
                   "Note: this verifies admin-consented permissions; some workloads still need the right license on each user.";
         }
         catch (OperationCanceledException) { Status = "Pre-flight canceled."; }
