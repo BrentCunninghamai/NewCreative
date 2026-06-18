@@ -51,6 +51,9 @@ There is also a companion CLI, **`M365Migrate.ProfileSwap.exe`** (ProfWiz-style 
 profile takeover for cutover) — see [PROFILESWAP.md](PROFILESWAP.md).
 - **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
   simple upload, large files via resumable upload session; reapply direct grants.
+- **SharePoint (site)** — resolve a source + target **site by URL**, match document
+  libraries by name, and copy each library with the delta-aware files engine (also
+  moves a Team's files, which live in its SharePoint site).
 - **Teams** — discover teams + channels, plan, enable Teams on the migrated M365
   group, and recreate standard channels.
 - **Teams (messages)** — import channel **message history** via Graph migration

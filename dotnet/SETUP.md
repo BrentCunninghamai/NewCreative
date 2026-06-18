@@ -199,6 +199,21 @@ the Scope (source) or set the **Target user UPN** (UPN or object ID) and re-plan
 > on the same mailbox, so the two aren't writing to it at once. **OneDrive** and **Teams**
 > are not part of the mailbox move, so you can run those at any time without conflict.
 
+## SharePoint sites (and Teams files)
+
+The **SharePoint (site)** workload copies a site's document libraries to a target site:
+
+1. Pre-create the target site (same libraries) if it doesn't exist.
+2. **Scope** = the **source site URL** (e.g. `https://contoso.sharepoint.com/sites/Marketing`).
+3. **Target user UPN / site URL** field = the **target site URL**
+   (e.g. `https://fabrikam.sharepoint.com/sites/Marketing`).
+4. **Discover & Plan** lists each document library with its file count and `% synced`;
+   libraries with no same-named target library show `unmatched` (create them first).
+5. **Migrate** copies with the same delta + large-file handling as OneDrive (re-runnable).
+
+A Microsoft **Team's files live in its SharePoint site**, so point this at the team's site
+to move its files. Needs `Sites.ReadWrite.All` + `Files.ReadWrite.All` on both apps.
+
 ## 4. Troubleshooting
 
 | Symptom | Cause / fix |
