@@ -47,7 +47,7 @@ Do this **twice** — once in the source tenant, once in the target tenant.
 | Calendar & Contacts (content) | `Calendars.ReadWrite`, `Contacts.ReadWrite`, `User.Read.All` |
 | Files      | `Files.ReadWrite.All`, `Sites.ReadWrite.All`, `User.Read.All` |
 | Teams      | `Group.ReadWrite.All`, `Team.Create`, `Channel.ReadBasic.All` |
-| Teams (messages) | `Teamwork.Migrate.All`, `User.Read.All` |
+| Teams (messages) | `Teamwork.Migrate.All`, `TeamMember.ReadWrite.All`, `Group.Read.All`, `User.Read.All` |
 | MTO confirmation (optional) | `MultiTenantOrganization.Read.All` (on the **target** app) |
 
 `Organization.Read.All` is what **Test connections** reads, so add it to both
@@ -245,10 +245,10 @@ present from another tool/sync isn't duplicated) and **calendar + contacts** per
 copy OneDrive/SharePoint files and folders (small + large via upload sessions) and
 reapply direct user sharing; enable Teams and recreate standard channels; and
 import Teams channel **message history** (migration mode — fresh team, original
-authors + timestamps, top-level messages, run once).
+authors + timestamps, top-level messages, then add owners + members, run once);
+copy **SharePoint site** document libraries (delta-aware), which also moves Teams files.
 
-**Does not yet:** Teams threaded replies, Teams team membership for migration-mode
-teams (add after migration), and 1:1/group chats; distribution lists /
+**Does not yet:** Teams threaded replies and 1:1/group chats; distribution lists /
 mail-enabled security groups (need Exchange Online); private/shared channels, tabs,
 apps; file version history and full metadata (needs the SharePoint Migration API).
 These are surfaced honestly rather than silently skipped.
