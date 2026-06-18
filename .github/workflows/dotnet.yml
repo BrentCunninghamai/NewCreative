@@ -50,6 +50,15 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish
 
+      # Companion CLI: ProfWiz-style local profile swapper (Windows, elevated). Lands
+      # in the same publish folder so it's signed and released alongside the app.
+      - name: Publish profile swapper
+        run: >
+          dotnet publish dotnet/src/M365Migrate.ProfileSwap/M365Migrate.ProfileSwap.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
       # Code-sign the exe via Azure Trusted Signing so Windows SmartScreen trusts
       # it. Skipped (no-op) until the signing secrets are configured — see
       # dotnet/SIGNING.md.
@@ -71,7 +80,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: m365-migrate-windows
-          path: publish/M365Migrate.exe
+          path: |
+            publish/M365Migrate.exe
+            publish/M365Migrate.ProfileSwap.exe
           if-no-files-found: error
 
       # On every push to main, attach the exe to a rolling "latest" release so it
@@ -82,5 +93,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Windows build
-          body: Automated build of the m365-migrate Windows app from the latest main.
-          files: publish/M365Migrate.exe
+          body: Automated build of the m365-migrate Windows app (+ profile swapper) from the latest main.
+          files: |
+            publish/M365Migrate.exe
+            publish/M365Migrate.ProfileSwap.exe
