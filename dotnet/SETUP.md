@@ -160,6 +160,8 @@ the Scope (source) or set the **Target user UPN** (UPN or object ID) and re-plan
 | Teams **skipped: target M365 group missing** | Run **Groups** first so the backing group exists. |
 | Teams **error** on enable | The target group has no owner — ensure Groups sync added owners (owners must themselves exist as migrated users). |
 | Files **error** on a huge file | Very large files use an upload session; transient failures can be re-run (re-upload is idempotent/replace). |
+| Files shows **OneDrive — unavailable** / `notSupported` | The source user has **no provisioned OneDrive** (mailbox-only accounts often don't) or isn't OneDrive/SharePoint-licensed. Nothing to copy — focus on Mail/Teams, or test Files on a user who has files. |
+| Identity row shows **NOT FOUND** for the target | The Target user UPN doesn't resolve — common when the source domain isn't verified in the target (so `user@olddomain` isn't the target UPN). Put the user's **object ID (GUID)** or real target UPN in **Target user UPN or object ID**, then re-plan. |
 | Mail **slow** / 429s | Expected for big mailboxes — Graph throttles; the client backs off and retries. Re-running is safe: dedup is **mailbox-wide** by `internetMessageId`, so any message already in the target (from a prior run, coexistence sync, or another migration tool — even if filed in a different folder) is skipped, not duplicated. |
 | Mail folders look different | Folders are matched by display name; tenants in different languages may not match well-known folders (Inbox, etc.). |
 
