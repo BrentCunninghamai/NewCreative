@@ -22,6 +22,16 @@ public sealed class FilesWorkload
     private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
     /// <summary>
+    /// True when a Graph error means the user has no usable drive — i.e. OneDrive was
+    /// never provisioned or the account isn't SharePoint/OneDrive-licensed. Graph
+    /// returns 404, or 400 with code "notSupported" ("Operation not supported"), for
+    /// these. Lets callers report "no OneDrive" cleanly instead of failing the run.
+    /// </summary>
+    public static bool IsDriveUnavailable(GraphException ex) =>
+        ex.StatusCode == 404
+        || (ex.StatusCode == 400 && ex.Message.Contains("notSupported", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Return the (source, target) drive root paths for a user or a site.
     /// <paramref name="targetUserOverride"/> overrides the domain-rewrite for the
     /// target OneDrive owner — needed when the target UPN isn't a clean rewrite of

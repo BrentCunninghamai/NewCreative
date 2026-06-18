@@ -298,7 +298,26 @@ public sealed class MainViewModel : ViewModelBase
                 var workload = new FilesWorkload(config);
                 (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope, targetUserOverride: ScopeTargetUpn);
                 var idSuffix = await VerifyIdentitiesAsync(source, target, _filesSourceRoot, _filesTargetRoot, ct);
-                var driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
+                List<DriveItem> driveItems;
+                try
+                {
+                    driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
+                }
+                catch (GraphException ex) when (FilesWorkload.IsDriveUnavailable(ex))
+                {
+                    _plannedFiles = new List<PlannedDriveItem>();
+                    Rows.Add(new PlanRow
+                    {
+                        Name = "OneDrive",
+                        Action = "unavailable",
+                        Detail = "source OneDrive not provisioned",
+                        Reason = "Graph: notSupported/404 — the source user has no OneDrive.",
+                    });
+                    Status = $"Source OneDrive for {Scope} isn't provisioned/available — nothing to copy. " +
+                             "(Mailbox-only users often have no OneDrive; try a user who has files.)" + idSuffix;
+                    WriteReport("plan");
+                    return;
+                }
                 _plannedFiles = workload.Plan(driveItems);
                 foreach (var p in _plannedFiles)
                     Rows.Add(new PlanRow

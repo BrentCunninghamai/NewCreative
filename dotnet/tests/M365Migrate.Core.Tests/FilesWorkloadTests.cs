@@ -59,6 +59,16 @@ public class FilesWorkloadTests
     }
 
     [Fact]
+    public void IsDriveUnavailable_DetectsNoOneDrive()
+    {
+        Assert.True(FilesWorkload.IsDriveUnavailable(new GraphException(404, "{\"error\":{\"code\":\"ResourceNotFound\"}}")));
+        Assert.True(FilesWorkload.IsDriveUnavailable(new GraphException(400, "{\"error\":{\"code\":\"notSupported\",\"message\":\"Operation not supported\"}}")));
+        // Real failures (auth, throttling, server) are NOT treated as "no drive".
+        Assert.False(FilesWorkload.IsDriveUnavailable(new GraphException(403, "{\"error\":{\"code\":\"accessDenied\"}}")));
+        Assert.False(FilesWorkload.IsDriveUnavailable(new GraphException(400, "{\"error\":{\"code\":\"invalidRequest\"}}")));
+    }
+
+    [Fact]
     public void Plan_RewritesGrantsAndMarksCopy()
     {
         var workload = new FilesWorkload(TestData.Config());
