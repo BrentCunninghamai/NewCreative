@@ -310,6 +310,16 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
+    private static bool IsHttpUrl(string? s) =>
+        !string.IsNullOrWhiteSpace(s) && s.Trim().StartsWith("http", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Drive-root for a OneDrive spec: a site/OneDrive URL resolves to that site's drive
+    /// (geo-safe); otherwise it's a user's personal drive.</summary>
+    private static async Task<string> OneDriveRootAsync(SharePointWorkload sp, GraphClient client, string spec, CancellationToken ct)
+        => IsHttpUrl(spec)
+            ? $"/sites/{await sp.ResolveSiteIdAsync(client, spec.Trim(), ct)}/drive"
+            : $"/users/{UserResolver.NormalizeKey(spec)}/drive";
+
     /// <summary>
     /// Resolve and display the source and target identities for a per-user content run,
     /// so the operator can confirm targeting before any write. Adds an "Identity" row and
@@ -497,8 +507,25 @@ public sealed class MainViewModel : ViewModelBase
             else if (Workload == "Files (OneDrive)")
             {
                 var workload = new FilesWorkload(config);
-                (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope, targetUserOverride: ScopeTargetUpn);
-                var idSuffix = await VerifyIdentitiesAsync(source, target, _filesSourceRoot, _filesTargetRoot, ct);
+                var idSuffix = "";
+                if (IsHttpUrl(Scope) || IsHttpUrl(ScopeTargetUpn))
+                {
+                    // OneDrive/SharePoint addressed by URL — geo-safe (works for multi-geo where
+                    // /users/{id}/drive returns notSupported). Resolve each side via its site URL.
+                    if (string.IsNullOrWhiteSpace(ScopeTargetUpn))
+                    {
+                        Status = "When the source is a OneDrive/SharePoint URL, put the TARGET OneDrive/site URL in the Target field.";
+                        return;
+                    }
+                    var sp = new SharePointWorkload(config);
+                    _filesSourceRoot = await OneDriveRootAsync(sp, source, Scope, ct);
+                    _filesTargetRoot = await OneDriveRootAsync(sp, target, ScopeTargetUpn, ct);
+                }
+                else
+                {
+                    (_filesSourceRoot, _filesTargetRoot) = workload.ResolveDriveRoots(user: Scope, targetUserOverride: ScopeTargetUpn);
+                    idSuffix = await VerifyIdentitiesAsync(source, target, _filesSourceRoot, _filesTargetRoot, ct);
+                }
                 List<DriveItem> driveItems;
                 try
                 {
