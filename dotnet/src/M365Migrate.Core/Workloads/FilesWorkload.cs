@@ -113,6 +113,51 @@ public sealed class FilesWorkload
         return planned;
     }
 
+    /// <summary>
+    /// Index a target drive's items for delta comparison: file paths→size, plus the set of
+    /// folder paths. Used to skip items already present (pre-sync / repeatable sync), so each
+    /// pass only moves what's new or changed.
+    /// </summary>
+    public static (Dictionary<string, long> Files, HashSet<string> Folders) IndexTarget(IEnumerable<DriveItem> targetItems)
+    {
+        var files = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in targetItems)
+        {
+            if (t.IsFolder) folders.Add(t.RelativePath);
+            else files[t.RelativePath] = t.Size;
+        }
+        return (files, folders);
+    }
+
+    /// <summary>
+    /// Mark planned items already present in the target as skip, in place: a folder that
+    /// exists, or a file at the same path with the same size, becomes <c>skip</c> ("exists"
+    /// / "unchanged"). Size match is the reliable cross-tenant signal that a file is already
+    /// copied. Returns how many were marked unchanged (for completion %).
+    /// </summary>
+    public static int MarkUnchanged(
+        IEnumerable<PlannedDriveItem> planned,
+        IReadOnlyDictionary<string, long> targetFiles,
+        IReadOnlySet<string> targetFolders)
+    {
+        var unchanged = 0;
+        foreach (var p in planned)
+        {
+            if (p.Action != "copy") continue;
+            if (p.IsFolder)
+            {
+                if (targetFolders.Contains(p.RelativePath)) { p.Action = "skip"; p.Reason = "exists"; }
+            }
+            else if (targetFiles.TryGetValue(p.RelativePath, out var size) && size == p.Size)
+            {
+                p.Action = "skip"; p.Reason = "unchanged";
+                unchanged++;
+            }
+        }
+        return unchanged;
+    }
+
     private static string ParentSegment(string relativePath)
     {
         var slash = relativePath.LastIndexOf('/');

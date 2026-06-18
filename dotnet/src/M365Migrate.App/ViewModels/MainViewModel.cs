@@ -405,6 +405,15 @@ public sealed class MainViewModel : ViewModelBase
                     return;
                 }
                 _plannedFiles = workload.Plan(driveItems);
+                // Delta: mark items already present in the target so the plan shows only changes.
+                var fileTotal = _plannedFiles.Count(x => !x.IsFolder);
+                var alreadyThere = 0;
+                try
+                {
+                    var (tf, tfo) = FilesWorkload.IndexTarget(await workload.DiscoverDriveItemsAsync(target, _filesTargetRoot!, ct));
+                    alreadyThere = FilesWorkload.MarkUnchanged(_plannedFiles, tf, tfo);
+                }
+                catch (GraphException ex) when (FilesWorkload.IsDriveNotProvisioned(ex)) { /* empty target → copy all */ }
                 foreach (var p in _plannedFiles)
                     Rows.Add(new PlanRow
                     {
@@ -413,7 +422,9 @@ public sealed class MainViewModel : ViewModelBase
                         Detail = p.IsFolder ? "folder" : $"file ({p.Size} bytes)",
                         Reason = p.Reason ?? "",
                     });
-                Status = $"Planned {_plannedFiles.Count} drive items for {Scope}. Review, then Migrate." + idSuffix;
+                var pct = fileTotal == 0 ? 100 : 100 * alreadyThere / fileTotal;
+                Status = $"Planned {_plannedFiles.Count} drive items for {Scope} — {alreadyThere}/{fileTotal} files " +
+                         $"already in target ({pct}% synced); only changes will copy. Review, then Migrate." + idSuffix;
             }
             else if (Workload == "Teams")
             {
@@ -704,9 +715,20 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var items = await filesWl.DiscoverDriveItemsAsync(source, sRoot, ct);
                 var planned = filesWl.Plan(items);
+                // Delta: skip items already in the target (pre-sync / repeatable passes).
+                var fileCount = planned.Count(x => !x.IsFolder);
+                var unchanged = 0;
+                try
+                {
+                    var (tf, tfo) = FilesWorkload.IndexTarget(await filesWl.DiscoverDriveItemsAsync(target, tRoot, ct));
+                    unchanged = FilesWorkload.MarkUnchanged(planned, tf, tfo);
+                }
+                catch (GraphException ex) when (FilesWorkload.IsDriveNotProvisioned(ex)) { /* empty target → copy all */ }
                 var per = await filesWl.MigrateDriveItemsAsync(source, target, planned, sRoot, tRoot, dryRun: !Execute, ct);
                 r.Status = Execute ? "ok" : "would-copy";
-                r.Detail["items"] = planned.Count.ToString();
+                r.Detail["files"] = fileCount.ToString();
+                r.Detail["unchanged"] = unchanged.ToString();
+                r.Detail["synced%"] = (fileCount == 0 ? 100 : 100 * unchanged / fileCount).ToString();
                 var errs = per.Count(x => x.Status == "error");
                 if (errs > 0) r.Detail["errors"] = errs.ToString();
             }
