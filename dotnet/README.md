@@ -59,8 +59,8 @@ profile takeover for cutover) — see [PROFILESWAP.md](PROFILESWAP.md).
 - **Teams (messages)** — import channel **message history** via Graph migration
   mode: create a fresh migration-mode team, recreate channels, import each message
   with original author + timestamp, completeMigration, then add the source team's
-  **owners + members** (mapped to target accounts). Run once per team (not
-  idempotent); top-level messages (threaded replies are a follow-up).
+  **owners + members** (mapped to target accounts). Imports top-level messages **and
+  their threaded replies**. Run once per team (not idempotent).
 
 ## Build & test
 

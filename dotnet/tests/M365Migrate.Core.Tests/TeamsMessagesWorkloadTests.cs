@@ -125,4 +125,34 @@ public class TeamsMessagesWorkloadTests
         Assert.Equal("imported:0", results[0].Detail["messages"]);
         Assert.Equal("1", results[0].Detail["skipped"]);
     }
+
+    [Fact]
+    public void MigrationMessageBody_UsesAuthorContentAndTimestamp()
+    {
+        var msg = new ChannelMessage
+        {
+            CreatedDateTime = "2021-05-01T10:00:00Z",
+            FromDisplayName = "Jane Doe",
+            BodyContentType = "html",
+            BodyContent = "<p>hello</p>",
+        };
+
+        var body = TeamsMessagesWorkload.MigrationMessageBody("target-id-1", msg, "2020-01-01T00:00:00Z");
+
+        Assert.Equal("2021-05-01T10:00:00Z", body["createdDateTime"]);
+        var from = Assert.IsAssignableFrom<Dictionary<string, object>>(body["from"]);
+        var user = Assert.IsAssignableFrom<Dictionary<string, object>>(from["user"]);
+        Assert.Equal("target-id-1", user["id"]);
+        Assert.Equal("aadUser", user["userIdentityType"]);
+        var bodyEl = Assert.IsAssignableFrom<Dictionary<string, object>>(body["body"]);
+        Assert.Equal("<p>hello</p>", bodyEl["content"]);
+    }
+
+    [Fact]
+    public void MigrationMessageBody_FallsBackWhenNoTimestamp()
+    {
+        var msg = new ChannelMessage { CreatedDateTime = null, BodyContent = "x" };
+        var body = TeamsMessagesWorkload.MigrationMessageBody("id", msg, "2020-01-01T00:00:00Z");
+        Assert.Equal("2020-01-01T00:00:00Z", body["createdDateTime"]);
+    }
 }

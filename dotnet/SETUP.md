@@ -269,12 +269,12 @@ present from another tool/sync isn't duplicated) and **calendar + contacts** per
 copy OneDrive/SharePoint files and folders (small + large via upload sessions) and
 reapply direct user sharing; enable Teams and recreate standard channels; and
 import Teams channel **message history** (migration mode — fresh team, original
-authors + timestamps, top-level messages, then add owners + members, run once);
+authors + timestamps, messages + threaded replies, then add owners + members, run once);
 copy **SharePoint site** document libraries (delta-aware), which also moves Teams files.
 
-**Does not yet:** Teams threaded replies and 1:1/group chats; distribution lists /
-mail-enabled security groups (need Exchange Online); private/shared channels, tabs,
-apps; file version history and full metadata (needs the SharePoint Migration API).
+**Does not yet:** Teams 1:1/group chats; distribution lists / mail-enabled security
+groups (need Exchange Online); private/shared channels, tabs, apps; file version history
+and full metadata (needs the SharePoint Migration API).
 These are surfaced honestly rather than silently skipped.
 
 > **Teams (messages) note:** this path creates a **new** migration-mode team per
