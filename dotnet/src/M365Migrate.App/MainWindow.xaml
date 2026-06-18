@@ -45,6 +45,8 @@
                     <ComboBoxItem Content="Files (OneDrive)" />
                     <ComboBoxItem Content="Mail (content)" />
                     <ComboBoxItem Content="Calendar &amp; Contacts (content)" />
+                    <ComboBoxItem Content="Bulk Mail (mapped users)" />
+                    <ComboBoxItem Content="Bulk OneDrive (mapped users)" />
                     <ComboBoxItem Content="Teams" />
                     <ComboBoxItem Content="Teams (messages)" />
                 </ComboBox>

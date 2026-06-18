@@ -297,6 +297,25 @@ public sealed class MainViewModel : ViewModelBase
                          $"({_userMatches.Count - matched} unmatched). Exported mapping CSV to {ReportsDirectory}. " +
                          "Review; edit the CSV to override matches for a bulk run.";
             }
+            else if (Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)")
+            {
+                var content = Workload.Contains("Mail") ? "Mail" : "OneDrive";
+                _userMatches = await new UserMatchingWorkload(config).BuildAsync(source, target, ct: ct);
+                WriteMappingCsv(_userMatches);
+                var matched = _userMatches.Where(m => m.Matched).ToList();
+                foreach (var m in matched)
+                    Rows.Add(new PlanRow
+                    {
+                        Name = m.SourceUpn,
+                        Action = "queued",
+                        Detail = m.TargetUpn ?? "",
+                        Reason = m.Method,
+                    });
+                var unmatched = _userMatches.Count - matched.Count;
+                Status = $"{matched.Count} mapped users queued for bulk {content} " +
+                         $"({unmatched} unmatched, skipped). Migrate runs them all — dry run unless Execute. " +
+                         $"Mapping CSV exported to {ReportsDirectory}.";
+            }
             else if (Workload == "Groups")
             {
                 var workload = new GroupsWorkload(config);
@@ -481,9 +500,11 @@ public sealed class MainViewModel : ViewModelBase
                      "source→target map, then run the actual workloads (Mail, Files, ...).";
             return;
         }
+        var isBulk = Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)";
         if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
             && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null
-            && !_calContactsPlanned && _messageTeams is null)
+            && !_calContactsPlanned && _messageTeams is null
+            && !(isBulk && _userMatches is not null))
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
             return;
@@ -542,6 +563,14 @@ public sealed class MainViewModel : ViewModelBase
                 results = await new TeamsMessagesWorkload(config).MigrateAsync(
                     source, target, _messageTeams, dryRun: !Execute, ct: ct);
             }
+            else if ((Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)") && _userMatches is not null)
+            {
+                using var sourceHttp = new HttpClient();
+                var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                results = Workload.Contains("Mail")
+                    ? await RunBulkMailAsync(config, source, target, mode, ct)
+                    : await RunBulkOneDriveAsync(config, source, target, mode, ct);
+            }
             else if (_plannedUsers is not null)
             {
                 results = await new UsersWorkload(config).MigrateAsync(target, _plannedUsers, dryRun: !Execute, ct: ct);
@@ -583,5 +612,88 @@ public sealed class MainViewModel : ViewModelBase
             _cts = null;
             IsBusy = false;
         }
+    }
+
+    private static int SumDetail(IEnumerable<WorkloadResult> rs, string key) =>
+        rs.Sum(x => x.Detail.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : 0);
+
+    /// <summary>Run the Mail workload for every mapped user, one per row. Resumable (dedup).</summary>
+    private async Task<List<WorkloadResult>> RunBulkMailAsync(
+        MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
+    {
+        var mailWl = new MailWorkload(config);
+        var matched = _userMatches!.Where(m => m.Matched).ToList();
+        var results = new List<WorkloadResult>();
+        var i = 0;
+        foreach (var m in matched)
+        {
+            ct.ThrowIfCancellationRequested();
+            i++;
+            Status = $"{mode}: Mail {i}/{matched.Count} — {m.SourceUpn}";
+            var srcRef = $"/users/{m.SourceUpn}";
+            var tgtRef = $"/users/{m.TargetId ?? m.TargetUpn}";
+            var r = new WorkloadResult { Name = m.SourceUpn };
+            try
+            {
+                var folders = await mailWl.DiscoverFoldersAsync(source, srcRef, ct);
+                var planned = mailWl.Plan(folders);
+                var perFolder = await mailWl.MigrateAsync(source, target, srcRef, tgtRef, planned, dryRun: !Execute, ct);
+                r.Detail["folders"] = planned.Count.ToString();
+                if (Execute)
+                {
+                    r.Status = "ok";
+                    r.Detail["copied"] = SumDetail(perFolder, "copied").ToString();
+                    r.Detail["skipped"] = SumDetail(perFolder, "skipped").ToString();
+                    var errs = SumDetail(perFolder, "errors");
+                    if (errs > 0) r.Detail["errors"] = errs.ToString();
+                }
+                else
+                {
+                    r.Status = "would-copy";
+                    r.Detail["~items"] = planned.Sum(f => f.ItemCount).ToString();
+                }
+            }
+            catch (GraphException ex) { r.Status = "error"; r.Reason = ex.Message; }
+            results.Add(r);
+        }
+        return results;
+    }
+
+    /// <summary>Run the OneDrive workload for every mapped user, one per row. Resumable.</summary>
+    private async Task<List<WorkloadResult>> RunBulkOneDriveAsync(
+        MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
+    {
+        var filesWl = new FilesWorkload(config);
+        var matched = _userMatches!.Where(m => m.Matched).ToList();
+        var results = new List<WorkloadResult>();
+        var i = 0;
+        foreach (var m in matched)
+        {
+            ct.ThrowIfCancellationRequested();
+            i++;
+            Status = $"{mode}: OneDrive {i}/{matched.Count} — {m.SourceUpn}";
+            var (sRoot, tRoot) = filesWl.ResolveDriveRoots(user: m.SourceUpn, targetUserOverride: m.TargetId ?? m.TargetUpn);
+            var r = new WorkloadResult { Name = m.SourceUpn };
+            try
+            {
+                var items = await filesWl.DiscoverDriveItemsAsync(source, sRoot, ct);
+                var planned = filesWl.Plan(items);
+                var per = await filesWl.MigrateDriveItemsAsync(source, target, planned, sRoot, tRoot, dryRun: !Execute, ct);
+                r.Status = Execute ? "ok" : "would-copy";
+                r.Detail["items"] = planned.Count.ToString();
+                var errs = per.Count(x => x.Status == "error");
+                if (errs > 0) r.Detail["errors"] = errs.ToString();
+            }
+            catch (GraphException ex) when (FilesWorkload.IsDriveNotProvisioned(ex))
+            {
+                r.Status = "skipped"; r.Reason = "no OneDrive provisioned";
+            }
+            catch (GraphException ex)
+            {
+                r.Status = "error"; r.Reason = FilesWorkload.DriveErrorHint(ex);
+            }
+            results.Add(r);
+        }
+        return results;
     }
 }

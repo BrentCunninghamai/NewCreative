@@ -41,6 +41,10 @@ default. **All workloads are now ported** (full parity with the Python engine):
 - **Calendar & Contacts (content)** — copy a user's calendar events and contacts;
   best-effort idempotent (skips events matching subject+start+end, contacts
   matching display name + primary email).
+- **Bulk Mail / Bulk OneDrive (mapped users)** — build the user mapping, then run the
+  content workload for **every matched user** in one pass, one result row per user,
+  with live per-user progress. Dry run unless Execute; resumable (mail dedup / drive
+  re-upload), and per-user errors (e.g. no OneDrive) don't stop the batch.
 - **Files** — OneDrive/SharePoint discover (BFS) → plan → copy: small files via
   simple upload, large files via resumable upload session; reapply direct grants.
 - **Teams** — discover teams + channels, plan, enable Teams on the migrated M365
