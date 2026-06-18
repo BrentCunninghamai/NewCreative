@@ -99,6 +99,17 @@ The grid shows each source user, the **method** used, and the matched target (or
 read-only — nothing is written. Use it to confirm who maps to whom (and fix the messy
 hybrid/orchestrator cases) before running the actual content workloads.
 
+### Bulk content for all mapped users
+
+Once the mapping looks right, the **Bulk Mail (mapped users)** and **Bulk OneDrive
+(mapped users)** workloads run that content for **every matched user** in a single pass —
+this is the ShareGate-style "migrate everyone" step. **Discover & Plan** lists the queued
+users; **Migrate** runs them all (dry run until you tick **Execute**), one result row per
+user with live progress. It's resumable (mail uses mailbox-wide dedup; OneDrive re-upload
+replaces), and a per-user problem (e.g. a user with no OneDrive, or a mailbox still
+mid-move) is recorded and skipped without stopping the batch. **Cancel** stops between
+users; already-processed users stay done.
+
 ### Recommended order (later workloads depend on earlier ones)
 
 1. **Users** — so accounts exist in the target.
