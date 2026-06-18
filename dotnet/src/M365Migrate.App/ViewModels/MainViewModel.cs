@@ -79,6 +79,32 @@ public sealed class MainViewModel : ViewModelBase
         "m365-migrate", "reports");
 
     /// <summary>Write the current grid rows to a timestamped CSV. Never throws.</summary>
+    /// <summary>
+    /// Write the one-time app-setup guide (permission manifest + 1-click admin-consent links)
+    /// to the reports folder and return its path, so a Global Admin can grant everything fast.
+    /// </summary>
+    public string? WriteSetupGuide()
+    {
+        try
+        {
+            Directory.CreateDirectory(ReportsDirectory);
+            var guide = GraphSetup.SetupGuide(
+                SourceTenantId.Trim(), SourceClientId.Trim(),
+                TargetTenantId.Trim(), TargetClientId.Trim());
+            var file = Path.Combine(ReportsDirectory, $"app-setup-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+            File.WriteAllText(file, guide);
+            Status = "App setup guide written. Paste the manifest into each app registration's " +
+                     "Manifest, then open the admin-consent links (in the file) as Global Admin.";
+            AppLog.Write($"setup guide written: {file}");
+            return file;
+        }
+        catch (Exception ex)
+        {
+            Status = "Couldn't write setup guide: " + ex.Message;
+            return null;
+        }
+    }
+
     /// <summary>Write the editable source→target mapping CSV (re-importable for a bulk run).</summary>
     private void WriteMappingCsv(IEnumerable<UserMatch> matches)
     {

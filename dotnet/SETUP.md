@@ -28,6 +28,13 @@ Do this **twice** — once in the source tenant, once in the target tenant.
    below), then **Grant admin consent for &lt;tenant&gt;** (this step is
    essential — without it every call returns 403).
 
+> **Fast path (recommended):** instead of adding permissions one by one, run the
+> app, fill in both tenants' IDs, and click **“App setup (permissions & 1-click
+> consent)”**. It writes a file containing (a) a **manifest block** to paste into
+> each app registration’s **Manage → Manifest** (`requiredResourceAccess`) so all
+> permissions are added at once, and (b) a **one-click admin-consent link** per
+> tenant — a Global Admin opens it, signs in, and approves everything in one go.
+
 ### Graph application permissions by workload
 
 | Workload   | Minimum Graph application permissions |

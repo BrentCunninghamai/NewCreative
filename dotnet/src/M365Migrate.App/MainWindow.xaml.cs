@@ -43,6 +43,27 @@ public partial class MainWindow : Window
         await _vm.TestConnectionsAsync();
     }
 
+    private void OnSetupClick(object sender, RoutedEventArgs e)
+    {
+        ApplyInputs();
+        var file = _vm.WriteSetupGuide();
+        if (file is not null)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = file,
+                    UseShellExecute = true,
+                });
+            }
+            catch
+            {
+                // opening the file is best-effort; the path is in the status line.
+            }
+        }
+    }
+
     private async void OnPlanClick(object sender, RoutedEventArgs e)
     {
         ApplyInputs();
