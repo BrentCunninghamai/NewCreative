@@ -155,6 +155,7 @@ public sealed class MainViewModel : ViewModelBase
     private string? _ccTargetRef;
     private List<MigratableTeam>? _messageTeams;
     private List<UserMatch>? _userMatches;
+    private List<(string Library, string SourceRoot, string TargetRoot, List<PlannedDriveItem> Items)>? _spJobs;
 
     private MigrationConfig BuildConfig() => new()
     {
@@ -293,6 +294,7 @@ public sealed class MainViewModel : ViewModelBase
         _calContactsPlanned = false;
         _messageTeams = null;
         _userMatches = null;
+        _spJobs = null;
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         try
@@ -489,6 +491,45 @@ public sealed class MainViewModel : ViewModelBase
                 Status = $"Planned {_messageTeams.Count} teams for message-history migration. " +
                          "Each becomes a NEW migration-mode team; run once. Review, then Migrate.";
             }
+            else if (Workload == "SharePoint (site)")
+            {
+                var sp = new SharePointWorkload(config);
+                var files = new FilesWorkload(config);
+                var srcSite = await sp.ResolveSiteIdAsync(source, Scope, ct);
+                var tgtSite = await sp.ResolveSiteIdAsync(target, ScopeTargetUpn, ct);
+                var (pairs, unmatched) = SharePointWorkload.MatchDrives(
+                    await sp.ListDrivesAsync(source, srcSite, ct),
+                    await sp.ListDrivesAsync(target, tgtSite, ct));
+
+                _spJobs = new();
+                var totalFiles = 0;
+                var totalSynced = 0;
+                foreach (var (sd, td) in pairs)
+                {
+                    var srcRoot = SharePointWorkload.DriveRoot(sd.Id);
+                    var tgtRoot = SharePointWorkload.DriveRoot(td.Id);
+                    var planned = files.Plan(await files.DiscoverDriveItemsAsync(source, srcRoot, ct));
+                    var fileCount = planned.Count(x => !x.IsFolder);
+                    var (tf, tfo) = FilesWorkload.IndexTarget(await files.DiscoverDriveItemsAsync(target, tgtRoot, ct));
+                    var unchanged = FilesWorkload.MarkUnchanged(planned, tf, tfo);
+                    _spJobs.Add((sd.Name, srcRoot, tgtRoot, planned));
+                    totalFiles += fileCount;
+                    totalSynced += unchanged;
+                    Rows.Add(new PlanRow
+                    {
+                        Name = sd.Name,
+                        Action = "queued",
+                        Detail = $"{fileCount} files, {unchanged} already in target",
+                        Reason = fileCount == 0 ? "" : $"{100 * unchanged / fileCount}% synced",
+                    });
+                }
+                foreach (var name in unmatched)
+                    Rows.Add(new PlanRow { Name = name, Action = "unmatched", Detail = "no target library of this name", Reason = "create it on the target site" });
+
+                var pct = totalFiles == 0 ? 100 : 100 * totalSynced / totalFiles;
+                Status = $"Planned {pairs.Count} document libraries ({totalFiles} files, {pct}% already synced; " +
+                         $"{unmatched.Count} unmatched). Review, then Migrate (dry run unless Execute).";
+            }
             else
             {
                 var workload = new UsersWorkload(config);
@@ -540,7 +581,7 @@ public sealed class MainViewModel : ViewModelBase
         var isBulk = Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)";
         if (_plannedUsers is null && _plannedGroups is null && _plannedMailboxes is null
             && _plannedFiles is null && _plannedTeams is null && _plannedMailFolders is null
-            && !_calContactsPlanned && _messageTeams is null
+            && !_calContactsPlanned && _messageTeams is null && _spJobs is null
             && !(isBulk && _userMatches is not null))
         {
             Status = "Nothing planned yet — run Discover & Plan first.";
@@ -607,6 +648,26 @@ public sealed class MainViewModel : ViewModelBase
                 results = Workload.Contains("Mail")
                     ? await RunBulkMailAsync(config, source, target, mode, ct)
                     : await RunBulkOneDriveAsync(config, source, target, mode, ct);
+            }
+            else if (Workload == "SharePoint (site)" && _spJobs is not null)
+            {
+                using var sourceHttp = new HttpClient();
+                var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+                var files = new FilesWorkload(config);
+                results = new List<WorkloadResult>();
+                var n = 0;
+                foreach (var job in _spJobs)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    n++;
+                    Status = $"{mode}: SharePoint library {n}/{_spJobs.Count} — {job.Library}";
+                    var per = await files.MigrateDriveItemsAsync(source, target, job.Items, job.SourceRoot, job.TargetRoot, dryRun: !Execute, ct);
+                    var r = new WorkloadResult { Name = job.Library, Status = Execute ? "ok" : "would-copy" };
+                    r.Detail["items"] = job.Items.Count.ToString();
+                    var errs = per.Count(x => x.Status == "error");
+                    if (errs > 0) r.Detail["errors"] = errs.ToString();
+                    results.Add(r);
+                }
             }
             else if (_plannedUsers is not null)
             {
