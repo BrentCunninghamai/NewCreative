@@ -827,6 +827,15 @@ public sealed class MainViewModel : ViewModelBase
                 results.Add(r);
                 continue;
             }
+            catch (GraphException ex)
+            {
+                // Other source-read failure (e.g. 403 missing permission, transient 5xx) —
+                // record this user and continue the batch rather than aborting the whole run.
+                r.Status = "error";
+                r.Reason = MailWorkload.MailboxErrorHint(ex);
+                results.Add(r);
+                continue;
+            }
 
             try
             {
