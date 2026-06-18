@@ -5,9 +5,10 @@ namespace M365Migrate.Core.Tests;
 
 public class ProfileStoreTests
 {
-    // A reversible "protector" stand-in for DPAPI so the round-trip is testable off-Windows.
-    private static string Wrap(string s) => "ENC(" + s + ")";
-    private static string Unwrap(string s) => s.StartsWith("ENC(") && s.EndsWith(")") ? s[4..^1] : s;
+    // A reversible "protector" stand-in for DPAPI that actually obscures the plaintext
+    // (base64), so the round-trip is testable off-Windows and the at-rest check is meaningful.
+    private static string Wrap(string s) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(s));
+    private static string Unwrap(string s) => System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(s));
 
     [Fact]
     public void SaveLoad_RoundTrips_AndProtectsSecretsAtRest()
@@ -31,10 +32,10 @@ public class ProfileStoreTests
 
             ProfileStore.Save(dir, profile, Wrap);
 
-            // Secret is encrypted on disk, not plaintext.
+            // Secret is protected on disk, not plaintext.
             var raw = File.ReadAllText(ProfileStore.FileFor(dir, profile.Name));
             Assert.DoesNotContain("super-secret", raw);
-            Assert.Contains("ENC(super-secret)", raw);
+            Assert.Contains(Wrap("super-secret"), raw);
 
             var loaded = ProfileStore.Load(dir, "Contoso source", Unwrap);
             Assert.Equal("super-secret", loaded.SourceClientSecret);
