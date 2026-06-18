@@ -20,8 +20,8 @@ namespace M365Migrate.Core.Workloads;
 ///
 /// Not idempotent: completeMigration is one-shot, so re-running creates a duplicate
 /// team — run once per team. Requires Teamwork.Migrate.All + TeamMember.ReadWrite.All
-/// (and user read) with admin consent. Top-level messages are imported; threaded
-/// replies are follow-up work.
+/// (and user read) with admin consent. Imports top-level messages and their threaded
+/// replies (each with original author + timestamp).
 /// </summary>
 public sealed class TeamsMessagesWorkload
 {
@@ -84,6 +84,28 @@ public sealed class TeamsMessagesWorkload
         var targetUpn = TargetNaming.TargetUpn(upn, _config);
         return targetUpnToId.TryGetValue(targetUpn, out var id) ? id : null;
     }
+
+    /// <summary>Build the migration-mode message body (author + timestamp + content) for a
+    /// top-level message or a reply.</summary>
+    internal static Dictionary<string, object> MigrationMessageBody(string authorId, ChannelMessage m, string fallbackCreated) =>
+        new()
+        {
+            ["createdDateTime"] = m.CreatedDateTime ?? fallbackCreated,
+            ["from"] = new Dictionary<string, object>
+            {
+                ["user"] = new Dictionary<string, object>
+                {
+                    ["id"] = authorId,
+                    ["displayName"] = m.FromDisplayName ?? "",
+                    ["userIdentityType"] = "aadUser",
+                },
+            },
+            ["body"] = new Dictionary<string, object>
+            {
+                ["contentType"] = m.BodyContentType,
+                ["content"] = m.BodyContent,
+            },
+        };
 
     private static async Task<List<string>> GroupUpnsAsync(GraphClient source, string url, CancellationToken ct)
     {
@@ -228,6 +250,7 @@ public sealed class TeamsMessagesWorkload
             }
 
             var imported = 0;
+            var replies = 0;
             var skipped = 0;
             var channelErrors = 0;
 
@@ -280,31 +303,51 @@ public sealed class TeamsMessagesWorkload
                         skipped++;
                         continue; // migration import requires a valid target author
                     }
+                    var fallbackCreated = team.CreatedDateTime ?? DefaultCreated;
+                    string? targetMsgId;
                     try
                     {
-                        await target.PostJsonAsync($"/teams/{newTeamId}/channels/{targetChannelId}/messages", new Dictionary<string, object>
-                        {
-                            ["createdDateTime"] = m.CreatedDateTime ?? team.CreatedDateTime ?? DefaultCreated,
-                            ["from"] = new Dictionary<string, object>
-                            {
-                                ["user"] = new Dictionary<string, object>
-                                {
-                                    ["id"] = authorId,
-                                    ["displayName"] = m.FromDisplayName ?? "",
-                                    ["userIdentityType"] = "aadUser",
-                                },
-                            },
-                            ["body"] = new Dictionary<string, object>
-                            {
-                                ["contentType"] = m.BodyContentType,
-                                ["content"] = m.BodyContent,
-                            },
-                        }, ct);
+                        var createdMsg = await target.PostJsonAsync(
+                            $"/teams/{newTeamId}/channels/{targetChannelId}/messages",
+                            MigrationMessageBody(authorId, m, fallbackCreated), ct);
+                        targetMsgId = createdMsg.GetStringOrNull("id");
                         imported++;
                     }
                     catch (GraphException)
                     {
                         skipped++;
+                        continue; // can't thread replies under a parent that failed
+                    }
+
+                    // Import this message's threaded replies under the new parent message.
+                    var sourceMsgId = raw.GetStringOrNull("id");
+                    if (targetMsgId is null || sourceMsgId is null)
+                        continue;
+                    var sourceReplies = await source.GetAllAsync(
+                        $"/teams/{team.GroupId}/channels/{channel.Id}/messages/{sourceMsgId}/replies?$top=50", ct);
+                    foreach (var rawReply in sourceReplies)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var reply = ChannelMessage.FromGraph(rawReply);
+                        if (reply.MessageType != "message")
+                            continue;
+                        var replyAuthor = ResolveAuthor(reply.FromUserId, sourceIdToUpn, targetUpnToId);
+                        if (replyAuthor is null)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                        try
+                        {
+                            await target.PostJsonAsync(
+                                $"/teams/{newTeamId}/channels/{targetChannelId}/messages/{targetMsgId}/replies",
+                                MigrationMessageBody(replyAuthor, reply, m.CreatedDateTime ?? fallbackCreated), ct);
+                            replies++;
+                        }
+                        catch (GraphException)
+                        {
+                            skipped++;
+                        }
                     }
                 }
             }
@@ -341,6 +384,8 @@ public sealed class TeamsMessagesWorkload
             }
 
             record.Detail["messages"] = $"imported:{imported}";
+            if (replies > 0)
+                record.Detail["replies"] = replies.ToString();
             if (skipped > 0)
                 record.Detail["skipped"] = skipped.ToString();
             if (channelErrors > 0)
