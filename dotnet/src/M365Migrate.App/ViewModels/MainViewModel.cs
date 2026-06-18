@@ -303,18 +303,22 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     driveItems = await workload.DiscoverDriveItemsAsync(source, _filesSourceRoot, ct);
                 }
-                catch (GraphException ex) when (FilesWorkload.IsDriveUnavailable(ex))
+                catch (GraphException ex)
                 {
+                    // Reading the source OneDrive failed. A 404 means no drive (skip cleanly);
+                    // anything else (notSupported / 403 / ...) is a fixable issue we surface
+                    // with a hint rather than silently skipping a user who has files.
                     _plannedFiles = new List<PlannedDriveItem>();
+                    var notProvisioned = FilesWorkload.IsDriveNotProvisioned(ex);
+                    var hint = FilesWorkload.DriveErrorHint(ex);
                     Rows.Add(new PlanRow
                     {
                         Name = "OneDrive",
-                        Action = "unavailable",
-                        Detail = "source OneDrive not provisioned",
-                        Reason = "Graph: notSupported/404 — the source user has no OneDrive.",
+                        Action = notProvisioned ? "unavailable" : "error",
+                        Detail = "couldn't read source OneDrive",
+                        Reason = hint,
                     });
-                    Status = $"Source OneDrive for {Scope} isn't provisioned/available — nothing to copy. " +
-                             "(Mailbox-only users often have no OneDrive; try a user who has files.)" + idSuffix;
+                    Status = $"OneDrive for {Scope}: {hint}" + idSuffix;
                     WriteReport("plan");
                     return;
                 }

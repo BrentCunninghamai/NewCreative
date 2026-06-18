@@ -22,14 +22,30 @@ public sealed class FilesWorkload
     private string Rewrite(string upn) => TargetNaming.TargetUpn(upn, _config);
 
     /// <summary>
-    /// True when a Graph error means the user has no usable drive — i.e. OneDrive was
-    /// never provisioned or the account isn't SharePoint/OneDrive-licensed. Graph
-    /// returns 404, or 400 with code "notSupported" ("Operation not supported"), for
-    /// these. Lets callers report "no OneDrive" cleanly instead of failing the run.
+    /// True only when the user genuinely has no OneDrive: Graph returns <c>404</c> when
+    /// the drive doesn't exist and (under app-only auth) can't be auto-provisioned. Other
+    /// failures — including <c>400 notSupported</c> — are NOT "no drive" (a user with a
+    /// provisioned OneDrive can still hit those), so they must surface, not be skipped.
     /// </summary>
-    public static bool IsDriveUnavailable(GraphException ex) =>
-        ex.StatusCode == 404
-        || (ex.StatusCode == 400 && ex.Message.Contains("notSupported", StringComparison.OrdinalIgnoreCase));
+    public static bool IsDriveNotProvisioned(GraphException ex) => ex.StatusCode == 404;
+
+    /// <summary>
+    /// A human-readable hint for why reading a user's OneDrive failed, so the operator can
+    /// act instead of seeing a raw Graph error. Distinguishes a missing drive (404) from
+    /// the common misconfigurations that return <c>400 notSupported</c> / <c>403</c>.
+    /// </summary>
+    public static string DriveErrorHint(GraphException ex)
+    {
+        if (ex.StatusCode == 404)
+            return "No OneDrive provisioned for this user — nothing to copy.";
+        if (ex.StatusCode == 400 && ex.Message.Contains("notSupported", StringComparison.OrdinalIgnoreCase))
+            return "Graph returned 'notSupported' reading OneDrive. The user HAS a drive, so this is usually a config issue: "
+                 + "grant the SOURCE app Files.ReadWrite.All + Sites.ReadWrite.All (Application) and Grant admin consent; "
+                 + "if the tenant is multi-geo, the drive may live in another geo.";
+        if (ex.StatusCode is 401 or 403)
+            return "Access denied reading OneDrive — grant Files.ReadWrite.All + Sites.ReadWrite.All on the source app and admin-consent.";
+        return ex.Message;
+    }
 
     /// <summary>
     /// Return the (source, target) drive root paths for a user or a site.

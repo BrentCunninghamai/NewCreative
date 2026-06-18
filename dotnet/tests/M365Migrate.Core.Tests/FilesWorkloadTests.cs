@@ -59,13 +59,23 @@ public class FilesWorkloadTests
     }
 
     [Fact]
-    public void IsDriveUnavailable_DetectsNoOneDrive()
+    public void IsDriveNotProvisioned_OnlyTrueFor404()
     {
-        Assert.True(FilesWorkload.IsDriveUnavailable(new GraphException(404, "{\"error\":{\"code\":\"ResourceNotFound\"}}")));
-        Assert.True(FilesWorkload.IsDriveUnavailable(new GraphException(400, "{\"error\":{\"code\":\"notSupported\",\"message\":\"Operation not supported\"}}")));
-        // Real failures (auth, throttling, server) are NOT treated as "no drive".
-        Assert.False(FilesWorkload.IsDriveUnavailable(new GraphException(403, "{\"error\":{\"code\":\"accessDenied\"}}")));
-        Assert.False(FilesWorkload.IsDriveUnavailable(new GraphException(400, "{\"error\":{\"code\":\"invalidRequest\"}}")));
+        // 404 is the only "genuinely no OneDrive" signal.
+        Assert.True(FilesWorkload.IsDriveNotProvisioned(new GraphException(404, "{\"error\":{\"code\":\"ResourceNotFound\"}}")));
+        // 400 notSupported is NOT "no drive" — a provisioned drive can still hit it,
+        // so it must surface (don't skip a user who actually has files).
+        Assert.False(FilesWorkload.IsDriveNotProvisioned(new GraphException(400, "{\"error\":{\"code\":\"notSupported\",\"message\":\"Operation not supported\"}}")));
+        Assert.False(FilesWorkload.IsDriveNotProvisioned(new GraphException(403, "{\"error\":{\"code\":\"accessDenied\"}}")));
+    }
+
+    [Fact]
+    public void DriveErrorHint_GuidesEachFailure()
+    {
+        Assert.Contains("No OneDrive provisioned", FilesWorkload.DriveErrorHint(new GraphException(404, "{}")));
+        Assert.Contains("Files.ReadWrite.All", FilesWorkload.DriveErrorHint(new GraphException(400, "{\"error\":{\"code\":\"notSupported\"}}")));
+        Assert.Contains("multi-geo", FilesWorkload.DriveErrorHint(new GraphException(400, "{\"error\":{\"code\":\"notSupported\"}}")));
+        Assert.Contains("Access denied", FilesWorkload.DriveErrorHint(new GraphException(403, "{}")));
     }
 
     [Fact]
