@@ -70,31 +70,34 @@ public class FilesWorkloadTests
     }
 
     [Fact]
-    public void Delta_MarksUnchangedFilesAndExistingFolders()
+    public void Delta_SkipsByContentHashNotSize()
     {
         var planned = new[]
         {
             new PlannedDriveItem { RelativePath = "Docs", IsFolder = true, Action = "copy" },
-            new PlannedDriveItem { RelativePath = "Docs/a.txt", Size = 100, Action = "copy" },   // unchanged
-            new PlannedDriveItem { RelativePath = "Docs/b.txt", Size = 200, Action = "copy" },   // changed size
-            new PlannedDriveItem { RelativePath = "Docs/c.txt", Size = 50, Action = "copy" },    // new
+            new PlannedDriveItem { RelativePath = "Docs/a.txt", ContentHash = "HASH_A", Action = "copy" }, // unchanged
+            new PlannedDriveItem { RelativePath = "Docs/b.txt", ContentHash = "HASH_B2", Action = "copy" }, // edited (same size, new hash)
+            new PlannedDriveItem { RelativePath = "Docs/c.txt", ContentHash = "HASH_C", Action = "copy" },  // new
+            new PlannedDriveItem { RelativePath = "Docs/d.txt", ContentHash = null, Action = "copy" },      // no source hash
         };
         var targetItems = new[]
         {
             new DriveItem { Name = "Docs", IsFolder = true },
-            new DriveItem { Name = "a.txt", ParentPath = "Docs", Size = 100 },
-            new DriveItem { Name = "b.txt", ParentPath = "Docs", Size = 999 }, // different size
+            new DriveItem { Name = "a.txt", ParentPath = "Docs", QuickXorHash = "HASH_A" },
+            new DriveItem { Name = "b.txt", ParentPath = "Docs", QuickXorHash = "HASH_B1" }, // different content
+            new DriveItem { Name = "d.txt", ParentPath = "Docs", QuickXorHash = "HASH_D" },  // present but source hash unknown
         };
 
         var (files, folders) = FilesWorkload.IndexTarget(targetItems);
         var unchanged = FilesWorkload.MarkUnchanged(planned, files, folders);
 
         Assert.Equal(1, unchanged);
-        Assert.Equal("skip", planned[0].Action);   // folder exists
-        Assert.Equal("skip", planned[1].Action);   // same size -> unchanged
+        Assert.Equal("skip", planned[0].Action);    // folder exists
+        Assert.Equal("skip", planned[1].Action);    // hash matches -> unchanged
         Assert.Equal("unchanged", planned[1].Reason);
-        Assert.Equal("copy", planned[2].Action);    // size differs -> still copy
-        Assert.Equal("copy", planned[3].Action);    // missing -> copy
+        Assert.Equal("copy", planned[2].Action);     // edited to same size but different hash -> still copy
+        Assert.Equal("copy", planned[3].Action);     // missing -> copy
+        Assert.Equal("copy", planned[4].Action);     // no source hash -> never skip on uncertainty
     }
 
     [Fact]

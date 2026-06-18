@@ -22,6 +22,10 @@ public sealed class DriveItem
     public string ParentPath { get; set; } = "";
     public bool IsFolder { get; set; }
     public long Size { get; set; }
+    /// <summary>OneDrive/SharePoint content hash (quickXorHash); deterministic for identical
+    /// bytes across tenants, so it's a reliable "already copied / unchanged" signal. Null when
+    /// the service didn't return a hash (e.g. some SharePoint libraries) — then don't skip.</summary>
+    public string? QuickXorHash { get; set; }
     public List<DriveGrant> Grants { get; set; } = new();
 
     /// <summary>Full path of this item relative to the drive root, including its name.</summary>
@@ -64,6 +68,11 @@ public sealed class DriveItem
             grants.Add(new DriveGrant { Upn = upn, Roles = roles });
         }
 
+        string? quickXor = null;
+        if (data.TryGetProperty("file", out var file) && file.ValueKind == JsonValueKind.Object
+            && file.TryGetProperty("hashes", out var hashes) && hashes.ValueKind == JsonValueKind.Object)
+            quickXor = hashes.GetStringOrNull("quickXorHash");
+
         return new DriveItem
         {
             Id = data.GetStringOrNull("id") ?? "",
@@ -71,6 +80,7 @@ public sealed class DriveItem
             ParentPath = rel,
             IsFolder = data.TryGetProperty("folder", out _),
             Size = data.TryGetProperty("size", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt64() : 0,
+            QuickXorHash = quickXor,
             Grants = grants,
         };
     }
@@ -87,6 +97,8 @@ public sealed class PlannedDriveItem
     public string RelativePath { get; set; } = "";
     public bool IsFolder { get; set; }
     public long Size { get; set; }
+    /// <summary>Source content hash (quickXorHash), used for delta skip; null if unavailable.</summary>
+    public string? ContentHash { get; set; }
     public string Action { get; set; } = "copy";
     public string? Reason { get; set; }
     public List<DriveGrant> TargetGrants { get; set; } = new();

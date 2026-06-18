@@ -104,6 +104,7 @@ public sealed class FilesWorkload
                 RelativePath = item.RelativePath,
                 IsFolder = item.IsFolder,
                 Size = item.Size,
+                ContentHash = item.QuickXorHash,
                 Action = "copy",
                 TargetGrants = item.Grants
                     .Select(g => new DriveGrant { Upn = Rewrite(g.Upn), Roles = g.Roles })
@@ -114,31 +115,32 @@ public sealed class FilesWorkload
     }
 
     /// <summary>
-    /// Index a target drive's items for delta comparison: file paths→size, plus the set of
-    /// folder paths. Used to skip items already present (pre-sync / repeatable sync), so each
-    /// pass only moves what's new or changed.
+    /// Index a target drive's items for delta comparison: file paths→content hash
+    /// (quickXorHash), plus the set of folder paths. Used to skip items already present
+    /// (pre-sync / repeatable sync), so each pass only moves what's new or changed.
     /// </summary>
-    public static (Dictionary<string, long> Files, HashSet<string> Folders) IndexTarget(IEnumerable<DriveItem> targetItems)
+    public static (Dictionary<string, string?> Files, HashSet<string> Folders) IndexTarget(IEnumerable<DriveItem> targetItems)
     {
-        var files = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        var files = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in targetItems)
         {
             if (t.IsFolder) folders.Add(t.RelativePath);
-            else files[t.RelativePath] = t.Size;
+            else files[t.RelativePath] = t.QuickXorHash;
         }
         return (files, folders);
     }
 
     /// <summary>
     /// Mark planned items already present in the target as skip, in place: a folder that
-    /// exists, or a file at the same path with the same size, becomes <c>skip</c> ("exists"
-    /// / "unchanged"). Size match is the reliable cross-tenant signal that a file is already
-    /// copied. Returns how many were marked unchanged (for completion %).
+    /// exists ("exists"), or a file at the same path whose **content hash matches** the source
+    /// ("unchanged"). Hash (quickXorHash) is the content signal — a file edited to the same
+    /// byte length is NOT skipped. When either side lacks a hash, the file is copied (never
+    /// skipped on uncertain equality). Returns how many files were marked unchanged.
     /// </summary>
     public static int MarkUnchanged(
         IEnumerable<PlannedDriveItem> planned,
-        IReadOnlyDictionary<string, long> targetFiles,
+        IReadOnlyDictionary<string, string?> targetFiles,
         IReadOnlySet<string> targetFolders)
     {
         var unchanged = 0;
@@ -149,7 +151,10 @@ public sealed class FilesWorkload
             {
                 if (targetFolders.Contains(p.RelativePath)) { p.Action = "skip"; p.Reason = "exists"; }
             }
-            else if (targetFiles.TryGetValue(p.RelativePath, out var size) && size == p.Size)
+            else if (p.ContentHash is not null
+                && targetFiles.TryGetValue(p.RelativePath, out var targetHash)
+                && targetHash is not null
+                && string.Equals(targetHash, p.ContentHash, StringComparison.OrdinalIgnoreCase))
             {
                 p.Action = "skip"; p.Reason = "unchanged";
                 unchanged++;
