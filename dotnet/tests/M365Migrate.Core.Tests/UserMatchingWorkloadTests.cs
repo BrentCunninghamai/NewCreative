@@ -80,6 +80,20 @@ public class UserMatchingWorkloadTests
     }
 
     [Fact]
+    public void Match_FlagsGuestByUserTypeEvenWithNormalUpn()
+    {
+        // A target Guest object with a normal-looking UPN (no #EXT#) is still not a content target.
+        var sources = new[] { Src("vendor@contoso.onmicrosoft.com") };
+        var targets = new[] { new TargetUserRec("t-g", "vendor@fabrikam.onmicrosoft.com", null, System.Array.Empty<string>(), "Guest") };
+
+        // Matches by rewrite (contoso -> fabrikam), but the target is a Guest.
+        var m = _wl.Match(sources, targets).Single();
+        Assert.True(m.Matched);
+        Assert.True(m.TargetIsGuest);
+        Assert.False(m.ContentReady);
+    }
+
+    [Fact]
     public void Match_DetectsCrossTenantExtIdentity()
     {
         // Source jane is already in the target as a B2B #EXT# member (decoded == her source UPN).

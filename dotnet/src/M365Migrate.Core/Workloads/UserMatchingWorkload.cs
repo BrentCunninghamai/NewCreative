@@ -6,8 +6,14 @@ using M365Migrate.Core.Models;
 namespace M365Migrate.Core.Workloads;
 
 /// <summary>A target tenant user, indexed for matching against source users.</summary>
-public sealed record TargetUserRec(string Id, string Upn, string? Mail, IReadOnlyList<string> SmtpAddresses)
+public sealed record TargetUserRec(string Id, string Upn, string? Mail, IReadOnlyList<string> SmtpAddresses, string? UserType = null)
 {
+    /// <summary>True if this target object is a guest — by userType or an #EXT# UPN. A guest can't
+    /// receive migrated mailbox/OneDrive content.</summary>
+    public bool IsGuest =>
+        string.Equals(UserType, "Guest", StringComparison.OrdinalIgnoreCase)
+        || Upn.Contains("#EXT#", StringComparison.OrdinalIgnoreCase);
+
     public static TargetUserRec FromGraph(System.Text.Json.JsonElement el)
     {
         var smtp = new List<string>();
@@ -23,7 +29,8 @@ public sealed record TargetUserRec(string Id, string Upn, string? Mail, IReadOnl
             el.GetStringOrNull("id") ?? "",
             el.GetStringOrNull("userPrincipalName") ?? "",
             el.GetStringOrNull("mail"),
-            smtp);
+            smtp,
+            el.GetStringOrNull("userType"));
     }
 }
 
@@ -66,7 +73,7 @@ public sealed class UserMatchingWorkload
     public static async Task<List<TargetUserRec>> LoadTargetUsersAsync(GraphClient target, CancellationToken ct = default)
     {
         var raw = await target.GetAllAsync(
-            "/users?$select=id,userPrincipalName,mail,proxyAddresses&$top=999", ct);
+            "/users?$select=id,userPrincipalName,mail,proxyAddresses,userType&$top=999", ct);
         return raw.Select(TargetUserRec.FromGraph).ToList();
     }
 
@@ -138,11 +145,11 @@ public sealed class UserMatchingWorkload
                 continue;
             }
 
-            // A match to a #EXT# guest rep means the user exists only as a guest in the target —
+            // A guest target (by userType or #EXT# UPN) means the user exists only as a guest —
             // fine for "don't duplicate", but NOT a destination for mailbox/OneDrive content.
-            var targetIsGuest = hit.Upn.Contains("#EXT#", StringComparison.OrdinalIgnoreCase);
+            var targetIsGuest = hit.IsGuest;
             if (targetIsGuest && note is null)
-                note = "target is a guest (#EXT#) — create/convert a native account before migrating content";
+                note = "target is a guest — create/convert a native account before migrating content";
 
             result.Add(new UserMatch(s.Id, s.UserPrincipalName, s.Mail, hit.Id, hit.Upn, method, note, targetIsGuest));
         }
