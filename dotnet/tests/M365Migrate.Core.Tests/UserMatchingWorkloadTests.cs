@@ -45,6 +45,41 @@ public class UserMatchingWorkloadTests
     }
 
     [Fact]
+    public void Match_PrefersSameUpnNativeAccountOverGuestRep()
+    {
+        // The Paul case: target has a native account with the SAME UPN (preserved by a
+        // hybrid/orchestrator move) AND a cross-tenant #EXT# guest rep. Prefer the native one.
+        var sources = new[] { Src("paule@net1.com") };
+        var targets = new[]
+        {
+            Tgt("paule@net1.com"),                                  // native account (real mailbox)
+            Tgt("paule_net1.com#EXT#@lesaka.onmicrosoft.com"),     // guest rep
+        };
+
+        var m = _wl.Match(sources, targets).Single();
+        Assert.Equal("upn", m.Method);
+        Assert.Equal("t-paule@net1.com", m.TargetId);
+        Assert.False(m.TargetIsGuest);
+        Assert.True(m.ContentReady);
+    }
+
+    [Fact]
+    public void Match_FlagsGuestOnlyTargetAsNotContentReady()
+    {
+        // Only a #EXT# guest rep exists in the target — matched (don't duplicate), but content
+        // can't be migrated into a guest, so it must be flagged.
+        var sources = new[] { Src("abdul@net1.com") };
+        var targets = new[] { Tgt("abdul_net1.com#EXT#@lesaka.onmicrosoft.com") };
+
+        var m = _wl.Match(sources, targets).Single();
+        Assert.Equal("cross-tenant", m.Method);
+        Assert.True(m.Matched);
+        Assert.True(m.TargetIsGuest);
+        Assert.False(m.ContentReady);
+        Assert.Contains("guest", m.Note);
+    }
+
+    [Fact]
     public void Match_DetectsCrossTenantExtIdentity()
     {
         // Source jane is already in the target as a B2B #EXT# member (decoded == her source UPN).

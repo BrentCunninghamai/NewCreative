@@ -38,17 +38,23 @@ public sealed record UserMatch(
     string? TargetId,
     string? TargetUpn,
     string Method,
-    string? Note = null)
+    string? Note = null,
+    bool TargetIsGuest = false)
 {
     public bool Matched => TargetUpn is not null;
+
+    /// <summary>True only if matched to a real (native, non-guest) target account that can
+    /// receive migrated content. A match to a <c>#EXT#</c> guest rep is present but not usable.</summary>
+    public bool ContentReady => Matched && !TargetIsGuest;
 }
 
 /// <summary>
 /// Builds a source→target user mapping for the whole tenant — the backbone of a
 /// ShareGate-style bulk migration. For each source user it picks the best target match
-/// by precedence: explicit CSV override → cross-tenant/B2B (#EXT#) identity → primary
-/// mail / SMTP proxy → UPN domain rewrite. Unmatched users are reported so they can be
-/// created or mapped by hand.
+/// by precedence: explicit CSV override → same-UPN native account → cross-tenant/B2B
+/// (#EXT#) identity → primary mail / SMTP proxy → UPN domain rewrite. A match to a #EXT#
+/// guest rep is flagged (TargetIsGuest) — present, but not a content destination. Unmatched
+/// users are reported so they can be created or mapped by hand.
 /// </summary>
 public sealed class UserMatchingWorkload
 {
@@ -107,6 +113,13 @@ public sealed class UserMatchingWorkload
                     continue;
                 }
             }
+            else if (byUpn.TryGetValue(s.UserPrincipalName, out var sameUpn))
+            {
+                // The target has a native account with the SAME UPN — e.g. a hybrid/orchestrator
+                // account that preserved the UPN. This is the real mailbox, so prefer it over a
+                // cross-tenant #EXT# guest rep.
+                hit = sameUpn; method = "upn";
+            }
             else if (byDecodedExt.TryGetValue(s.UserPrincipalName, out var ext))
             {
                 hit = ext; method = "cross-tenant";
@@ -125,7 +138,13 @@ public sealed class UserMatchingWorkload
                 continue;
             }
 
-            result.Add(new UserMatch(s.Id, s.UserPrincipalName, s.Mail, hit.Id, hit.Upn, method, note));
+            // A match to a #EXT# guest rep means the user exists only as a guest in the target —
+            // fine for "don't duplicate", but NOT a destination for mailbox/OneDrive content.
+            var targetIsGuest = hit.Upn.Contains("#EXT#", StringComparison.OrdinalIgnoreCase);
+            if (targetIsGuest && note is null)
+                note = "target is a guest (#EXT#) — create/convert a native account before migrating content";
+
+            result.Add(new UserMatch(s.Id, s.UserPrincipalName, s.Mail, hit.Id, hit.Upn, method, note, targetIsGuest));
         }
         return result;
     }
@@ -142,13 +161,13 @@ public sealed class UserMatchingWorkload
         return Match(sources, targets, csvOverrides);
     }
 
-    /// <summary>Serialize a mapping to CSV (source_upn,target_upn,method,target_id,note).</summary>
+    /// <summary>Serialize a mapping to CSV.</summary>
     public static string ToCsv(IEnumerable<UserMatch> matches)
     {
-        var headers = new[] { "source_upn", "target_upn", "method", "target_id", "note" };
+        var headers = new[] { "source_upn", "target_upn", "method", "target_is_guest", "target_id", "note" };
         var rows = matches.Select(m => (IReadOnlyList<string>)new[]
         {
-            m.SourceUpn, m.TargetUpn ?? "", m.Method, m.TargetId ?? "", m.Note ?? "",
+            m.SourceUpn, m.TargetUpn ?? "", m.Method, m.TargetIsGuest ? "yes" : "", m.TargetId ?? "", m.Note ?? "",
         });
         return Reporting.CsvReport.ToCsv(headers, rows);
     }
