@@ -513,6 +513,13 @@ public sealed class MainViewModel : ViewModelBase
                     var notProvisioned = FilesWorkload.IsDriveNotProvisioned(ex);
                     _plannedFiles = notProvisioned ? new List<PlannedDriveItem>() : null;
                     var hint = FilesWorkload.DriveErrorHint(ex);
+                    // For a non-404 failure (notSupported/403), probe the SOURCE user's SharePoint
+                    // service-plan so we can tell licensing (cut-over user) from multi-geo.
+                    if (!notProvisioned)
+                    {
+                        try { hint += "  |  source " + await UsersWorkload.SharePointPlanStatusAsync(source, UserResolver.NormalizeKey(_filesSourceRoot!), ct); }
+                        catch (GraphException) { /* diagnostic is best-effort */ }
+                    }
                     Rows.Add(new PlanRow
                     {
                         Name = "OneDrive",
