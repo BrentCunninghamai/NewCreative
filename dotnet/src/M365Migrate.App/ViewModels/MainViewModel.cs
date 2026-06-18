@@ -654,6 +654,72 @@ public sealed class MainViewModel : ViewModelBase
     private static int SumDetail(IEnumerable<WorkloadResult> rs, string key) =>
         rs.Sum(x => x.Detail.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : 0);
 
+    private static int AverageSynced(IReadOnlyList<WorkloadResult> rs)
+    {
+        var vals = rs.Where(r => r.Detail.TryGetValue("synced%", out _))
+            .Select(r => int.TryParse(r.Detail["synced%"], out var n) ? n : 0).ToList();
+        return vals.Count == 0 ? 0 : (int)Math.Round(vals.Average());
+    }
+
+    /// <summary>
+    /// Repeatedly run the selected Bulk workload on an interval — pre-seed to ~100% while
+    /// users keep working on the source, so cutover is a tiny final pass. Each round rebuilds
+    /// the mapping (picks up new users) and copies only the delta. Stops on Cancel.
+    /// </summary>
+    public async Task StartAutoSyncAsync(int intervalMinutes)
+    {
+        if (IsBusy) return;
+        var isBulk = Workload == "Bulk Mail (mapped users)" || Workload == "Bulk OneDrive (mapped users)";
+        if (!isBulk) { Status = "Auto-sync needs a Bulk workload — pick Bulk Mail or Bulk OneDrive."; return; }
+        if (!Execute) { Status = "Tick Execute to auto-sync — each round copies the delta."; return; }
+        var error = Validate();
+        if (error is not null) { Status = error; return; }
+        if (intervalMinutes < 1) intervalMinutes = 30;
+
+        IsBusy = true;
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        try
+        {
+            var config = BuildConfig();
+            using var sourceHttp = new HttpClient();
+            using var targetHttp = new HttpClient();
+            var source = new GraphClient(sourceHttp, TokenProviders.ForTenant(config.Source));
+            var target = new GraphClient(targetHttp, TokenProviders.ForTenant(config.Target));
+            var round = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                round++;
+                _userMatches = await new UserMatchingWorkload(config).BuildAsync(source, target, ct: ct);
+                var results = Workload.Contains("Mail")
+                    ? await RunBulkMailAsync(config, source, target, $"AUTO-SYNC #{round}", ct)
+                    : await RunBulkOneDriveAsync(config, source, target, $"AUTO-SYNC #{round}", ct);
+
+                Rows.Clear();
+                foreach (var r in results)
+                    Rows.Add(new PlanRow
+                    {
+                        Name = r.Name,
+                        Action = r.Status,
+                        Detail = string.Join("  ", r.Detail.Select(kv => $"{kv.Key}={kv.Value}")),
+                        Reason = r.Reason ?? "",
+                    });
+                WriteReport("autosync");
+                var avg = AverageSynced(results);
+                Status = $"Auto-sync round {round} done — {results.Count} users, avg {avg}% synced. " +
+                         $"Next pass in {intervalMinutes} min. Cancel to stop (then do a final pass at cutover).";
+                AppLog.Write($"auto-sync round {round}: {results.Count} users, avg {avg}% synced");
+
+                try { await Task.Delay(TimeSpan.FromMinutes(intervalMinutes), ct); }
+                catch (OperationCanceledException) { break; }
+            }
+            Status = $"Auto-sync stopped after {round} round(s).";
+        }
+        catch (OperationCanceledException) { Status = "Auto-sync canceled."; }
+        catch (Exception ex) { AppLog.Write($"auto-sync failed: {ex}"); Status = "Auto-sync error: " + ex.Message; }
+        finally { _cts.Dispose(); _cts = null; IsBusy = false; }
+    }
+
     /// <summary>Run the Mail workload for every mapped user, one per row. Resumable (dedup).</summary>
     private async Task<List<WorkloadResult>> RunBulkMailAsync(
         MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
@@ -679,8 +745,11 @@ public sealed class MainViewModel : ViewModelBase
                 if (Execute)
                 {
                     r.Status = "ok";
-                    r.Detail["copied"] = SumDetail(perFolder, "copied").ToString();
-                    r.Detail["skipped"] = SumDetail(perFolder, "skipped").ToString();
+                    var copied = SumDetail(perFolder, "copied");
+                    var skipped = SumDetail(perFolder, "skipped");
+                    r.Detail["copied"] = copied.ToString();
+                    r.Detail["skipped"] = skipped.ToString();
+                    r.Detail["synced%"] = (copied + skipped == 0 ? 100 : 100 * skipped / (copied + skipped)).ToString();
                     var errs = SumDetail(perFolder, "errors");
                     if (errs > 0) r.Detail["errors"] = errs.ToString();
                 }
