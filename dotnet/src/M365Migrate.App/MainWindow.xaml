@@ -16,6 +16,13 @@
                 <TextBlock Text="m365-migrate" FontSize="20" FontWeight="Bold" />
                 <TextBlock Text="Tenant-to-tenant migration" Foreground="#666" Margin="0,0,0,8" />
 
+                <TextBlock Text="Profile (saved connections + options; secrets encrypted)" Style="{StaticResource SectionHeader}" />
+                <ComboBox x:Name="ProfileCombo" IsEditable="True" />
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                    <Button x:Name="SaveProfileButton" Content="Save profile" Width="110" Height="26" Click="OnSaveProfileClick" />
+                    <Button x:Name="LoadProfileButton" Content="Load profile" Width="110" Height="26" Margin="6,0,0,0" Click="OnLoadProfileClick" />
+                </StackPanel>
+
                 <TextBlock Text="Source tenant" Style="{StaticResource SectionHeader}" />
                 <TextBlock Text="Tenant ID" />
                 <TextBox x:Name="SourceTenantId" />
