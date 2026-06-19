@@ -84,4 +84,36 @@ public sealed class SharePointWorkload
 
     /// <summary>The Graph drive-root ref for a library id, for use with <see cref="FilesWorkload"/>.</summary>
     public static string DriveRoot(string driveId) => $"/drives/{driveId}";
+
+    /// <summary>
+    /// Derive a tenant's OneDrive ("-my") host from its SPO root web URL, e.g.
+    /// <c>https://contoso.sharepoint.com</c> → <c>contoso-my.sharepoint.com</c>. Works for
+    /// any cloud (sharepoint.com / .us / .de) by inserting "-my" after the tenant label.
+    /// </summary>
+    public static string MyHostFromRoot(string rootWebUrl)
+    {
+        var host = new Uri(rootWebUrl).Host;            // contoso.sharepoint.com
+        var dot = host.IndexOf('.');
+        return dot < 0 ? host + "-my" : host[..dot] + "-my" + host[dot..];
+    }
+
+    /// <summary>Read the tenant's SPO root and return its OneDrive host (cached by the caller).</summary>
+    public static async Task<string> GetMyHostAsync(GraphClient client, CancellationToken ct = default)
+    {
+        var root = await client.GetAsync("/sites/root?$select=webUrl", ct);
+        var url = root.GetStringOrNull("webUrl")
+            ?? throw new InvalidOperationException("Could not read the tenant's SharePoint root URL.");
+        return MyHostFromRoot(url);
+    }
+
+    /// <summary>
+    /// Build a user's OneDrive personal-site URL from the tenant OneDrive host and their UPN
+    /// (the personal-site segment is the UPN with each non-alphanumeric char replaced by '_').
+    /// Resolving this URL reaches the drive even in multi-geo, where /users/{id}/drive fails.
+    /// </summary>
+    public static string OneDriveUrl(string myHost, string upn)
+    {
+        var seg = new string(upn.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+        return $"https://{myHost}/personal/{seg}";
+    }
 }
