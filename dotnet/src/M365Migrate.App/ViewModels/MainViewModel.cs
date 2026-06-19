@@ -1061,10 +1061,16 @@ public sealed class MainViewModel : ViewModelBase
             Status = $"{mode}: OneDrive {i}/{matched.Count} — {m.SourceUpn}";
             var r = new WorkloadResult { Name = m.SourceUpn };
 
-            var sRoot = await WorkingDriveRootAsync(source, sp, m.SourceUpn, m.SourceUpn, sourceMyHost, ct);
-            if (sRoot is null) { r.Status = "skipped"; r.Reason = "no/unreadable source OneDrive"; results.Add(r); continue; }
-            var tRoot = await WorkingDriveRootAsync(target, sp, m.TargetId ?? m.TargetUpn, m.TargetUpn, targetMyHost, ct);
-            if (tRoot is null) { r.Status = "skipped"; r.Reason = "no/unreadable target OneDrive"; results.Add(r); continue; }
+            string? sRoot, tRoot;
+            try
+            {
+                sRoot = await WorkingDriveRootAsync(source, sp, m.SourceUpn, m.SourceUpn, sourceMyHost, ct);
+                tRoot = await WorkingDriveRootAsync(target, sp, m.TargetId ?? m.TargetUpn, m.TargetUpn, targetMyHost, ct);
+            }
+            catch (GraphException ex) { r.Status = "error"; r.Reason = FilesWorkload.DriveErrorHint(ex); results.Add(r); continue; }
+            catch (InvalidOperationException ex) { r.Status = "error"; r.Reason = ex.Message; results.Add(r); continue; }
+            if (sRoot is null) { r.Status = "skipped"; r.Reason = "no source OneDrive (404)"; results.Add(r); continue; }
+            if (tRoot is null) { r.Status = "skipped"; r.Reason = "no target OneDrive (404)"; results.Add(r); continue; }
 
             try
             {
@@ -1107,6 +1113,9 @@ public sealed class MainViewModel : ViewModelBase
     /// OneDrive host + UPN (multi-geo, where /users/{id}/drive returns notSupported). Null when
     /// the user has no drive (404) or it can't be located.
     /// </summary>
+    private static bool IsNotSupported(GraphException ex) =>
+        ex.StatusCode == 400 && ex.Message.Contains("notSupported", StringComparison.OrdinalIgnoreCase);
+
     private static async Task<string?> WorkingDriveRootAsync(
         GraphClient client, SharePointWorkload sp, string userKey, string upn, string? myHost, CancellationToken ct)
     {
@@ -1120,12 +1129,23 @@ public sealed class MainViewModel : ViewModelBase
         {
             return null; // genuinely no drive (404)
         }
-        catch (GraphException)
+        catch (GraphException ex) when (IsNotSupported(ex))
         {
-            // notSupported / multi-geo: resolve the personal OneDrive site by URL.
-            if (myHost is null) return null;
-            try { return $"/sites/{await sp.ResolveSiteIdAsync(client, SharePointWorkload.OneDriveUrl(myHost, upn), ct)}/drive"; }
-            catch (GraphException) { return null; }
+            // notSupported = multi-geo. Resolve the personal OneDrive site by URL on the tenant's
+            // (default-geo) OneDrive host. Real resolve errors propagate; a host that doesn't
+            // resolve (likely a satellite geo) gets a clear, actionable message.
+            if (myHost is null) throw;
+            try
+            {
+                return $"/sites/{await sp.ResolveSiteIdAsync(client, SharePointWorkload.OneDriveUrl(myHost, upn), ct)}/drive";
+            }
+            catch (GraphException)
+            {
+                throw new InvalidOperationException(
+                    "OneDrive notSupported and couldn't auto-locate the drive at the tenant's default OneDrive host — " +
+                    "the user is likely in a satellite geo. Migrate this one via Files (OneDrive) with the explicit OneDrive URL.");
+            }
         }
+        // Any other GraphException (401/403/5xx) propagates so the caller records a real error.
     }
 }
