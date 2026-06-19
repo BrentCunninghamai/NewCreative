@@ -1037,21 +1037,35 @@ public sealed class MainViewModel : ViewModelBase
         return results;
     }
 
-    /// <summary>Run the OneDrive workload for every mapped user, one per row. Resumable.</summary>
+    /// <summary>Run the OneDrive workload for every mapped user, one per row. Resumable.
+    /// Auto-handles multi-geo: if /users/{id}/drive returns notSupported, it falls back to the
+    /// user's OneDrive site URL (derived from the tenant OneDrive host + UPN) — no manual URLs.</summary>
     private async Task<List<WorkloadResult>> RunBulkOneDriveAsync(
         MigrationConfig config, GraphClient source, GraphClient target, string mode, CancellationToken ct)
     {
         var filesWl = new FilesWorkload(config);
+        var sp = new SharePointWorkload(config);
         var matched = _userMatches!.Where(m => m.ContentReady).ToList();
         var results = new List<WorkloadResult>();
+
+        // Each tenant's OneDrive ("-my") host, read once for the multi-geo URL fallback. Best-effort.
+        string? sourceMyHost = null, targetMyHost = null;
+        try { sourceMyHost = await SharePointWorkload.GetMyHostAsync(source, ct); } catch (GraphException) { }
+        try { targetMyHost = await SharePointWorkload.GetMyHostAsync(target, ct); } catch (GraphException) { }
+
         var i = 0;
         foreach (var m in matched)
         {
             ct.ThrowIfCancellationRequested();
             i++;
             Status = $"{mode}: OneDrive {i}/{matched.Count} — {m.SourceUpn}";
-            var (sRoot, tRoot) = filesWl.ResolveDriveRoots(user: m.SourceUpn, targetUserOverride: m.TargetId ?? m.TargetUpn);
             var r = new WorkloadResult { Name = m.SourceUpn };
+
+            var sRoot = await WorkingDriveRootAsync(source, sp, m.SourceUpn, m.SourceUpn, sourceMyHost, ct);
+            if (sRoot is null) { r.Status = "skipped"; r.Reason = "no/unreadable source OneDrive"; results.Add(r); continue; }
+            var tRoot = await WorkingDriveRootAsync(target, sp, m.TargetId ?? m.TargetUpn, m.TargetUpn, targetMyHost, ct);
+            if (tRoot is null) { r.Status = "skipped"; r.Reason = "no/unreadable target OneDrive"; results.Add(r); continue; }
+
             try
             {
                 var items = await filesWl.DiscoverDriveItemsAsync(source, sRoot, ct);
@@ -1070,6 +1084,7 @@ public sealed class MainViewModel : ViewModelBase
                 r.Detail["files"] = fileCount.ToString();
                 r.Detail["unchanged"] = unchanged.ToString();
                 r.Detail["synced%"] = (fileCount == 0 ? 100 : 100 * unchanged / fileCount).ToString();
+                if (sRoot.StartsWith("/sites/")) r.Detail["via"] = "onedrive-url (multi-geo)";
                 var errs = per.Count(x => x.Status == "error");
                 if (errs > 0) r.Detail["errors"] = errs.ToString();
             }
@@ -1084,5 +1099,33 @@ public sealed class MainViewModel : ViewModelBase
             results.Add(r);
         }
         return results;
+    }
+
+    /// <summary>
+    /// Return a usable drive-root for a user: <c>/users/{id}/drive</c> when Graph serves it
+    /// (single-geo), otherwise the user's OneDrive **site** drive resolved from the tenant
+    /// OneDrive host + UPN (multi-geo, where /users/{id}/drive returns notSupported). Null when
+    /// the user has no drive (404) or it can't be located.
+    /// </summary>
+    private static async Task<string?> WorkingDriveRootAsync(
+        GraphClient client, SharePointWorkload sp, string userKey, string upn, string? myHost, CancellationToken ct)
+    {
+        var userRoot = $"/users/{UserResolver.NormalizeKey(userKey)}/drive";
+        try
+        {
+            await client.GetAsync(userRoot, ct); // cheap probe; succeeds in single-geo
+            return userRoot;
+        }
+        catch (GraphException ex) when (FilesWorkload.IsDriveNotProvisioned(ex))
+        {
+            return null; // genuinely no drive (404)
+        }
+        catch (GraphException)
+        {
+            // notSupported / multi-geo: resolve the personal OneDrive site by URL.
+            if (myHost is null) return null;
+            try { return $"/sites/{await sp.ResolveSiteIdAsync(client, SharePointWorkload.OneDriveUrl(myHost, upn), ct)}/drive"; }
+            catch (GraphException) { return null; }
+        }
     }
 }

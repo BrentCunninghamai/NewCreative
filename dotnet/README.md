@@ -45,7 +45,9 @@ default. **All workloads are now ported** (full parity with the Python engine):
   content workload for **every matched user** in one pass, one result row per user,
   with live per-user progress. Dry run unless Execute; resumable (mail dedup / drive
   re-upload), and per-user errors (e.g. no OneDrive) don't stop the batch. **Auto-sync**
-  re-runs the delta on an interval to pre-seed to ~100% before cutover.
+  re-runs the delta on an interval to pre-seed to ~100% before cutover. Bulk OneDrive
+  **auto-handles multi-geo**: if `/users/{id}/drive` returns `notSupported`, it falls back
+  to the user's OneDrive site URL (derived from the tenant OneDrive host + UPN) — no manual URLs.
 
 There is also a companion CLI, **`M365Migrate.ProfileSwap.exe`** (ProfWiz-style local
 profile takeover for cutover) — see [PROFILESWAP.md](PROFILESWAP.md).
